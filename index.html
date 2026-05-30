@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Melody Transcription</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.7/build/opensheetmusicdisplay.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --success: #059669;
+      --danger: #dc2626;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    .layout {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h2 {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+
+    .upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .upload-zone:hover,
+    .upload-zone.dragover {
+      border-color: var(--accent);
+      background: #eff6ff;
+    }
+
+    .upload-zone strong {
+      display: block;
+      font-size: 1rem;
+      margin-bottom: 6px;
+    }
+
+    .upload-zone span {
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    #fileInput { display: none; }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) { background: #f1f5f9; }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      display: none;
+    }
+
+    .status.show { display: block; }
+    .status.loading { background: #eff6ff; color: #1e40af; }
+    .status.error { background: #fef2f2; color: var(--danger); }
+    .status.success { background: #ecfdf5; color: var(--success); }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .meta-item {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .meta-item label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .meta-item div {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+
+    #scoreContainer {
+      min-height: 200px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .playback-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .playback-bar .divider {
+      width: 1px;
+      height: 28px;
+      background: var(--border);
+      margin: 0 4px;
+    }
+
+    .mode-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .mode-btn.active {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    .progress-wrap {
+      flex: 1;
+      min-width: 200px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .progress-wrap input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .time-label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      min-width: 90px;
+    }
+
+    .hidden { display: none !important; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(37, 99, 235, 0.25);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <header>
+      <h1>Melody Transcription</h1>
+      <p>Upload a monophonic recording and get sheet music, playback, and exports.</p>
+    </header>
+
+    <section class="card" id="uploadSection">
+      <h2>Upload</h2>
+      <div class="upload-zone" id="uploadZone">
+        <strong>Drop an audio file here or click to browse</strong>
+        <span>MP3, WAV, M4A — vocals or single-instrument melodies</span>
+      </div>
+      <input type="file" id="fileInput" accept="audio/*,.mp3,.wav,.m4a">
+      <div id="status" class="status"></div>
+    </section>
+
+    <section id="resultsSection" class="hidden">
+      <div class="card">
+        <h2>Analysis</h2>
+        <div class="meta-grid">
+          <div class="meta-item"><label>Notes</label><div id="metaNotes">—</div></div>
+          <div class="meta-item"><label>Key</label><div id="metaKey">—</div></div>
+          <div class="meta-item"><label>Time</label><div id="metaTime">—</div></div>
+          <div class="meta-item"><label>BPM</label><div id="metaBpm">—</div></div>
+          <div class="meta-item"><label>Duration</label><div id="metaDuration">—</div></div>
+          <div class="meta-item"><label>Processed in</label><div id="metaProcessing">—</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h2 style="margin:0;">Sheet Music</h2>
+          <button class="btn-secondary" id="editBtn" type="button">Edit score</button>
+        </div>
+        <div id="scoreContainer"></div>
+      </div>
+
+      <div class="card">
+        <h2>Playback</h2>
+        <div class="playback-bar">
+          <button class="btn-primary" id="playBtn">Play</button>
+          <button class="btn-secondary" id="stopBtn">Stop</button>
+          <div class="divider"></div>
+          <div class="mode-group">
+            <button class="btn-secondary mode-btn active" data-mode="synth">Transcription</button>
+            <button class="btn-secondary mode-btn" data-mode="original">Original</button>
+            <button class="btn-secondary mode-btn" data-mode="overlay">Overlay</button>
+          </div>
+          <div class="divider"></div>
+          <div class="progress-wrap">
+            <span class="time-label" id="timeDisplay">0:00 / 0:00</span>
+            <input type="range" id="seekBar" min="0" max="1000" value="0" disabled>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Export</h2>
+        <div class="btn-row">
+          <button class="btn-secondary" id="exportXmlBtn">Download MusicXML</button>
+          <button class="btn-secondary" id="exportPdfBtn">Download PDF</button>
+          <button class="btn-secondary" id="exportMidiBtn">Download MIDI</button>
+          <button class="btn-secondary" id="newBtn">New transcription</button>
+        </div>
+        <div id="exportStatus" class="status" style="margin-top:12px"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const API_URL = window.location.origin;
+
+    let currentResult = null;
+    let originalUrl = null;
+    let originalAudio = null;
+    let synth = null;
+    let osmd = null;
+    let playbackMode = 'synth';
+    let isPlaying = false;
+    let rafId = null;
+    let playStartTime = 0;
+    let playOffset = 0;
+
+    const uploadZone = document.getElementById('uploadZone');
+    const fileInput = document.getElementById('fileInput');
+    const statusEl = document.getElementById('status');
+    const resultsSection = document.getElementById('resultsSection');
+
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadZone.classList.add('dragover');
+    });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    document.querySelectorAll('.mode-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        playbackMode = btn.dataset.mode;
+      });
+    });
+
+    document.getElementById('playBtn').addEventListener('click', startPlayback);
+    document.getElementById('stopBtn').addEventListener('click', stopPlayback);
+    document.getElementById('seekBar').addEventListener('input', onSeek);
+    document.getElementById('exportXmlBtn').addEventListener('click', () => downloadBlob(
+      new Blob([currentResult.musicxml], { type: 'application/xml' }),
+      'transcription.musicxml'
+    ));
+    document.getElementById('exportMidiBtn').addEventListener('click', exportMidi);
+    document.getElementById('exportPdfBtn').addEventListener('click', exportPdf);
+    document.getElementById('newBtn').addEventListener('click', resetApp);
+    document.getElementById('editBtn').addEventListener('click', openEditor);
+
+    (function initFromEditor() {
+      const raw = sessionStorage.getItem('transcriptionResult');
+      if (!raw) return;
+      sessionStorage.removeItem('transcriptionResult');
+      try {
+        currentResult = JSON.parse(raw);
+        displayResults(currentResult);
+        showStatus('Score updated from editor.', 'success');
+      } catch (_) { /* ignore */ }
+    })();
+
+    async function handleFile(file) {
+      stopPlayback();
+      if (originalUrl) URL.revokeObjectURL(originalUrl);
+      originalUrl = URL.createObjectURL(file);
+      originalAudio = new Audio(originalUrl);
+
+      showStatus(`Transcribing ${file.name}…`, 'loading', true);
+
+      const form = new FormData();
+      form.append('file', file);
+
+      try {
+        const res = await fetch(`${API_URL}/transcribe`, { method: 'POST', body: form });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || res.statusText);
+        }
+        currentResult = await res.json();
+        displayResults(currentResult);
+        showStatus('Transcription complete.', 'success');
+      } catch (err) {
+        showStatus(`Error: ${err.message}. Is the backend running?`, 'error');
+      }
+    }
+
+    function displayResults(data) {
+      document.getElementById('metaNotes').textContent = data.note_count;
+      document.getElementById('metaKey').textContent = data.key_signature;
+      document.getElementById('metaTime').textContent = data.time_signature;
+      document.getElementById('metaBpm').textContent = data.bpm;
+      document.getElementById('metaDuration').textContent = formatTime(data.duration);
+      document.getElementById('metaProcessing').textContent = `${data.processing_time.toFixed(1)}s`;
+
+      renderScore(data.musicxml);
+      resultsSection.classList.remove('hidden');
+      document.getElementById('seekBar').disabled = false;
+      document.getElementById('seekBar').max = Math.max(1000, Math.floor(data.duration * 1000));
+      updateTimeDisplay(0, data.duration);
+    }
+
+    async function renderScore(musicxml) {
+      const container = document.getElementById('scoreContainer');
+      container.innerHTML = '';
+      osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
+        autoResize: true,
+        backend: 'svg',
+      });
+      await osmd.load(musicxml);
+      osmd.setOptions({
+        drawTitle: false,
+        drawSubtitle: false,
+        drawComposer: false,
+        drawLyricist: false,
+        drawPartNames: false,
+      });
+      osmd.render();
+    }
+
+    async function startPlayback() {
+      if (!currentResult) return;
+      await Tone.start();
+
+      stopPlayback(false);
+
+      if (!synth) {
+        synth = new Tone.PolySynth(Tone.Synth, {
+          oscillator: { type: 'triangle' },
+          envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 0.2 },
+        }).toDestination();
+        synth.volume.value = -6;
+      }
+
+      const duration = currentResult.duration;
+      const startAt = Tone.now() + 0.05;
+      playStartTime = performance.now();
+      playOffset = 0;
+      isPlaying = true;
+
+      if (playbackMode === 'original' || playbackMode === 'overlay') {
+        originalAudio.currentTime = 0;
+        originalAudio.play();
+      }
+
+      if (playbackMode === 'synth' || playbackMode === 'overlay') {
+        currentResult.notes.forEach((n) => {
+          const freq = Tone.Frequency(n.pitch, 'midi').toFrequency();
+          const dur = Math.max(0.05, n.end - n.start);
+          synth.triggerAttackRelease(freq, dur, startAt + n.start);
+        });
+      }
+
+      document.getElementById('playBtn').disabled = true;
+      tickProgress(duration);
+    }
+
+    function tickProgress(duration) {
+      const update = () => {
+        if (!isPlaying) return;
+        let t = (performance.now() - playStartTime) / 1000 + playOffset;
+        if (playbackMode === 'original' || playbackMode === 'overlay') {
+          t = originalAudio.currentTime;
+        }
+        if (t >= duration) {
+          stopPlayback();
+          return;
+        }
+        document.getElementById('seekBar').value = Math.floor(t * 1000);
+        updateTimeDisplay(t, duration);
+        rafId = requestAnimationFrame(update);
+      };
+      rafId = requestAnimationFrame(update);
+    }
+
+    function stopPlayback(resetSeek = true) {
+      isPlaying = false;
+      if (rafId) cancelAnimationFrame(rafId);
+      Tone.Transport.stop();
+      if (synth) synth.releaseAll();
+      if (originalAudio) {
+        originalAudio.pause();
+        originalAudio.currentTime = 0;
+      }
+      document.getElementById('playBtn').disabled = false;
+      if (resetSeek && currentResult) {
+        document.getElementById('seekBar').value = 0;
+        updateTimeDisplay(0, currentResult.duration);
+      }
+    }
+
+    function onSeek() {
+      if (!currentResult) return;
+      const t = document.getElementById('seekBar').value / 1000;
+      playOffset = t;
+      updateTimeDisplay(t, currentResult.duration);
+    }
+
+    function updateTimeDisplay(current, total) {
+      document.getElementById('timeDisplay').textContent =
+        `${formatTime(current)} / ${formatTime(total)}`;
+    }
+
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${String(s).padStart(2, '0')}`;
+    }
+
+    async function exportPdf() {
+      if (!currentResult) return;
+      if (currentResult.pdf_available && currentResult.pdf_base64) {
+        downloadBase64(currentResult.pdf_base64, 'transcription.pdf', 'application/pdf');
+        return;
+      }
+      showExportStatus('Generating PDF…', 'loading');
+      try {
+        const res = await fetch(`${API_URL}/export/pdf`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ musicxml: currentResult.musicxml }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || res.statusText);
+        }
+        const blob = await res.blob();
+        downloadBlob(blob, 'transcription.pdf');
+        showExportStatus('PDF downloaded.', 'success');
+      } catch (err) {
+        showExportStatus(err.message, 'error');
+      }
+    }
+
+    async function exportMidi() {
+      if (!currentResult) return;
+      downloadBase64(currentResult.midi_base64, 'transcription.mid', 'audio/midi');
+    }
+
+    function downloadBase64(b64, filename, mime) {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      downloadBlob(new Blob([bytes], { type: mime }), filename);
+    }
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function openEditor() {
+      if (!currentResult) return;
+      sessionStorage.setItem('editorPayload', JSON.stringify(currentResult));
+      window.location.href = '/editor';
+    }
+
+    function resetApp() {
+      stopPlayback();
+      currentResult = null;
+      if (originalUrl) URL.revokeObjectURL(originalUrl);
+      originalUrl = null;
+      originalAudio = null;
+      fileInput.value = '';
+      resultsSection.classList.add('hidden');
+      document.getElementById('scoreContainer').innerHTML = '';
+      statusEl.classList.remove('show');
+      document.getElementById('exportStatus').classList.remove('show');
+    }
+
+    function showStatus(msg, type, loading = false) {
+      statusEl.className = `status show ${type}`;
+      statusEl.innerHTML = loading
+        ? `<span class="spinner"></span>${msg}`
+        : msg;
+    }
+
+    function showExportStatus(msg, type) {
+      const el = document.getElementById('exportStatus');
+      el.className = `status show ${type}`;
+      el.textContent = msg;
+      if (type === 'success') setTimeout(() => el.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>

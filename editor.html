@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Edit Score — Melody Transcription</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.7/build/opensheetmusicdisplay.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --danger: #dc2626;
+      --shadow: 0 1px 3px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .layout { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .topbar h1 { font-size: 1.5rem; font-weight: 700; }
+    .topbar p { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) { background: #f1f5f9; }
+    .btn-danger { background: #fef2f2; color: var(--danger); border: 1px solid #fecaca; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    .meta-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    input, select {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 0.875rem;
+    }
+    .notes-table-wrap { overflow-x: auto; max-height: 420px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; position: sticky; top: 0; background: var(--surface); }
+    tr:hover td { background: #f8fafc; }
+    .row-actions { display: flex; gap: 4px; }
+    .icon-btn {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+    }
+    #scoreContainer {
+      min-height: 280px;
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .status {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      display: none;
+    }
+    .status.show { display: block; }
+    .status.error { background: #fef2f2; color: var(--danger); }
+    .status.success { background: #ecfdf5; color: #059669; }
+    .status.loading { background: #eff6ff; color: #1e40af; }
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="topbar">
+      <div>
+        <h1>Edit score</h1>
+        <p>Change notes, durations, tempo, and key — preview updates when you apply.</p>
+      </div>
+      <div class="btn-row">
+        <a href="/" class="btn btn-secondary" style="text-decoration:none;">← Back</a>
+        <button class="btn-secondary" type="button" id="previewBtn">Update preview</button>
+        <button class="btn-primary" type="button" id="saveBtn">Save & return</button>
+      </div>
+    </div>
+
+    <div id="emptyState" class="card empty-state hidden">
+      <p>No transcription loaded.</p>
+      <a href="/" class="btn btn-primary" style="margin-top:16px;text-decoration:none;display:inline-flex;">Transcribe audio</a>
+    </div>
+
+    <div id="editorMain" class="hidden">
+      <div class="card" style="margin-bottom:20px;">
+        <h2>Score settings</h2>
+        <div class="meta-row">
+          <div>
+            <label for="bpmInput">BPM</label>
+            <input type="number" id="bpmInput" min="40" max="240" step="1">
+          </div>
+          <div>
+            <label for="timeSigInput">Time signature</label>
+            <select id="timeSigInput">
+              <option value="4/4">4/4</option>
+              <option value="3/4">3/4</option>
+              <option value="6/8">6/8</option>
+              <option value="2/4">2/4</option>
+            </select>
+          </div>
+          <div>
+            <label for="keyInput">Key</label>
+            <select id="keyInput"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 style="margin:0;">Notes</h2>
+            <button type="button" class="btn-secondary" id="addNoteBtn">+ Add note</button>
+          </div>
+          <div class="notes-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Pitch</th>
+                  <th>Duration (beats)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="notesBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Preview</h2>
+          <div id="scoreContainer"></div>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = window.location.origin;
+    const NOTE_OPTIONS = [];
+    for (let m = 48; m <= 84; m++) {
+      const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const octave = Math.floor(m / 12) - 1;
+      NOTE_OPTIONS.push({ midi: m, label: `${names[m % 12]}${octave}` });
+    }
+
+    const KEYS = [
+      'C major', 'G major', 'D major', 'A major', 'E major', 'B major', 'F# major',
+      'F major', 'Bb major', 'Eb major', 'Ab major',
+      'A minor', 'E minor', 'B minor', 'F# minor', 'C# minor',
+      'D minor', 'G minor', 'C minor', 'F minor',
+    ];
+
+    let payload = null;
+    let scoreNotes = [];
+    let osmd = null;
+    let previewXml = '';
+
+    const keyInput = document.getElementById('keyInput');
+    KEYS.forEach((k) => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      keyInput.appendChild(opt);
+    });
+
+    async function init() {
+      const raw = sessionStorage.getItem('editorPayload');
+      if (!raw) {
+        document.getElementById('emptyState').classList.remove('hidden');
+        return;
+      }
+
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        document.getElementById('emptyState').classList.remove('hidden');
+        return;
+      }
+
+      document.getElementById('editorMain').classList.remove('hidden');
+      document.getElementById('bpmInput').value = Math.round(payload.bpm);
+      document.getElementById('timeSigInput').value = payload.time_signature || '4/4';
+      keyInput.value = payload.key_signature || 'C major';
+
+      await loadScoreNotes();
+      renderNotesTable();
+      await updatePreview();
+    }
+
+    async function loadScoreNotes() {
+      const res = await fetch(`${API_URL}/parse-score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ musicxml: payload.musicxml }),
+      });
+      if (!res.ok) {
+        showStatus('Could not parse score.', 'error');
+        return;
+      }
+      const data = await res.json();
+      scoreNotes = data.score_notes.map((n) => ({
+        pitch: n.pitch,
+        note: n.note,
+        quarter_length: n.quarter_length,
+      }));
+    }
+
+    function renderNotesTable() {
+      const tbody = document.getElementById('notesBody');
+      tbody.innerHTML = '';
+      scoreNotes.forEach((n, idx) => {
+        const tr = document.createElement('tr');
+        const opts = NOTE_OPTIONS.map(
+          (o) => `<option value="${o.midi}" ${o.midi === n.pitch ? 'selected' : ''}>${o.label}</option>`
+        ).join('');
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td><select data-idx="${idx}" data-field="pitch">${opts}</select></td>
+          <td><input type="number" data-idx="${idx}" data-field="quarter_length" min="0.25" max="16" step="0.25" value="${n.quarter_length}"></td>
+          <td class="row-actions">
+            <button type="button" class="icon-btn" data-action="up" data-idx="${idx}" title="Move up">↑</button>
+            <button type="button" class="icon-btn" data-action="down" data-idx="${idx}" title="Move down">↓</button>
+            <button type="button" class="icon-btn btn-danger" data-action="delete" data-idx="${idx}" title="Delete">×</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('select, input').forEach((el) => {
+        el.addEventListener('change', onNoteFieldChange);
+      });
+      tbody.querySelectorAll('[data-action]').forEach((el) => {
+        el.addEventListener('click', onRowAction);
+      });
+    }
+
+    function onNoteFieldChange(e) {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      const field = e.target.dataset.field;
+      if (field === 'pitch') {
+        scoreNotes[idx].pitch = parseInt(e.target.value, 10);
+        const opt = NOTE_OPTIONS.find((o) => o.midi === scoreNotes[idx].pitch);
+        scoreNotes[idx].note = opt ? opt.label : '';
+      } else {
+        scoreNotes[idx].quarter_length = parseFloat(e.target.value) || 0.25;
+      }
+    }
+
+    function onRowAction(e) {
+      const idx = parseInt(e.target.dataset.idx, 10);
+      const action = e.target.dataset.action;
+      if (action === 'delete') {
+        scoreNotes.splice(idx, 1);
+      } else if (action === 'up' && idx > 0) {
+        [scoreNotes[idx - 1], scoreNotes[idx]] = [scoreNotes[idx], scoreNotes[idx - 1]];
+      } else if (action === 'down' && idx < scoreNotes.length - 1) {
+        [scoreNotes[idx], scoreNotes[idx + 1]] = [scoreNotes[idx + 1], scoreNotes[idx]];
+      }
+      renderNotesTable();
+    }
+
+    document.getElementById('addNoteBtn').addEventListener('click', () => {
+      const last = scoreNotes[scoreNotes.length - 1];
+      scoreNotes.push({
+        pitch: last ? last.pitch : 60,
+        note: last ? last.note : 'C4',
+        quarter_length: 1,
+      });
+      renderNotesTable();
+    });
+
+    document.getElementById('previewBtn').addEventListener('click', updatePreview);
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      showStatus('Saving…', 'loading');
+      try {
+        const res = await fetch(`${API_URL}/rebuild-score`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            score_notes: scoreNotes,
+            bpm: parseFloat(document.getElementById('bpmInput').value),
+            time_signature: document.getElementById('timeSigInput').value,
+            key_signature: keyInput.value,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || res.statusText);
+        }
+        const updated = await res.json();
+        const merged = {
+          ...payload,
+          ...updated,
+          processing_time: payload.processing_time,
+        };
+        sessionStorage.setItem('transcriptionResult', JSON.stringify(merged));
+        sessionStorage.removeItem('editorPayload');
+        window.location.href = '/';
+      } catch (err) {
+        showStatus(err.message, 'error');
+      }
+    });
+
+    async function updatePreview() {
+      if (!scoreNotes.length) {
+        showStatus('Add at least one note.', 'error');
+        return;
+      }
+      showStatus('Updating preview…', 'loading');
+      try {
+        const res = await fetch(`${API_URL}/rebuild-score`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            score_notes: scoreNotes,
+            bpm: parseFloat(document.getElementById('bpmInput').value),
+            time_signature: document.getElementById('timeSigInput').value,
+            key_signature: keyInput.value,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || res.statusText);
+        }
+        const data = await res.json();
+        previewXml = data.musicxml;
+        await renderScore(previewXml);
+        showStatus('Preview updated.', 'success');
+      } catch (err) {
+        showStatus(err.message, 'error');
+      }
+    }
+
+    async function renderScore(musicxml) {
+      const container = document.getElementById('scoreContainer');
+      container.innerHTML = '';
+      osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay(container, {
+        autoResize: true,
+        backend: 'svg',
+      });
+      await osmd.load(musicxml);
+      osmd.setOptions({
+        drawTitle: false,
+        drawSubtitle: false,
+        drawComposer: false,
+        drawLyricist: false,
+        drawPartNames: false,
+      });
+      osmd.render();
+    }
+
+    function showStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.className = `status show ${type}`;
+      el.textContent = msg;
+      if (type === 'success') setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+    init();
+  </script>
+</body>
+</html>
