@@ -27,6 +27,7 @@ from tfinal import (
 APP_DIR = Path(__file__).parent
 FRONTEND_FILE = APP_DIR / "index.html"
 EDITOR_FILE = APP_DIR / "editor.html"
+REHEARSAL_FILE = APP_DIR / "rehearsal.html"
 
 app = FastAPI(title="Melody Transcription API", version="1.0.0")
 
@@ -116,6 +117,13 @@ async def serve_editor():
     if EDITOR_FILE.exists():
         return FileResponse(EDITOR_FILE)
     raise HTTPException(status_code=404, detail="editor.html not found")
+
+
+@app.get("/rehearsal")
+async def serve_rehearsal():
+    if REHEARSAL_FILE.exists():
+        return FileResponse(REHEARSAL_FILE)
+    raise HTTPException(status_code=404, detail="rehearsal.html not found")
 
 
 @app.post("/parse-score", response_model=ParseScoreResponse)

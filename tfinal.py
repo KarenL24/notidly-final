@@ -36,6 +36,13 @@ OUTPUTS:
 
 import sys
 import os
+
+# Ensure Homebrew binaries (lilypond, ffmpeg) are on PATH when the server
+# starts without a full shell environment (e.g. launched from an IDE).
+for _p in ('/opt/homebrew/bin', '/usr/local/bin'):
+    if os.path.isdir(_p) and _p not in os.environ.get('PATH', ''):
+        os.environ['PATH'] = _p + ':' + os.environ.get('PATH', '')
+
 import numpy as np
 import librosa
 import scipy.ndimage
@@ -71,8 +78,8 @@ MIN_NOTE_DURATION = 0.08  # seconds
 # Pitch jump threshold for note splitting
 MAX_SEMITONE_JUMP = 1.5
 
-# Quantization grid
-QUANTIZATION = 0.25  # quarter-beat
+# Conventional note durations in quarter beats (no awkward values that cause ties)
+CONVENTIONAL_DURATIONS = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
 
 DEFAULT_BPM = 90
 
@@ -326,6 +333,49 @@ def segment_notes(times, freq):
 
 
 # ============================================================
+# LYRIC DETECTION + ALIGNMENT
+# ============================================================
+
+def detect_lyrics(audio_path: str) -> list:
+    """Return [{word, start, end}] using openai-whisper medium model."""
+    try:
+        import whisper
+        model = whisper.load_model("medium")
+        result = model.transcribe(audio_path, word_timestamps=True)
+        words = []
+        for seg in result.get("segments", []):
+            for w in seg.get("words", []):
+                text = w.get("word", "").strip()
+                if text:
+                    words.append({"word": text, "start": w["start"], "end": w["end"]})
+        return words
+    except Exception as exc:
+        print(f"Lyric detection skipped: {exc}")
+        return []
+
+
+def align_lyrics(words: list, segments: list) -> list:
+    """
+    Map each note segment to a word whose center falls inside it.
+    Returns a list parallel to segments: word string or None per note.
+    """
+    used = set()
+    lyrics = []
+    for note_start, note_end, _ in segments:
+        lyric = None
+        for i, w in enumerate(words):
+            if i in used:
+                continue
+            center = (w["start"] + w["end"]) / 2
+            if note_start <= center < note_end:
+                lyric = w["word"]
+                used.add(i)
+                break
+        lyrics.append(lyric)
+    return lyrics
+
+
+# ============================================================
 # KEY DETECTION
 # ============================================================
 
@@ -385,30 +435,135 @@ def detect_key(notes):
 # ============================================================
 
 def quantize_notes(notes, bpm):
+    """
+    Position-based quantization.
 
-    beat_sec = 60 / bpm
+    Snap every note's start and end to the nearest 16th-note grid point,
+    derive durations from those snapped positions, and insert rests for
+    any resulting gaps.  Because all notes begin on clean beat subdivisions,
+    music21 can notate them without unnecessary ties.
+    """
+    if not notes:
+        return []
 
-    quantized = []
+    beat_sec = 60.0 / bpm
+    GRID     = 0.25        # 16th-note grid in quarter-beats
+    MIN_REST = GRID / 2    # gaps smaller than this are articulation, not rests
 
-    for start, end, midi_pitch in notes:
+    def snap(beats):
+        return round(round(beats / GRID) * GRID, 6)
 
-        duration_sec = end - start
+    events   = []
+    prev_end = None   # quantized end of the previous note (in beats)
 
-        beats = duration_sec / beat_sec
+    for start_s, end_s, midi_pitch in notes:
+        q_start = snap(start_s / beat_sec)
+        q_end   = snap(end_s   / beat_sec)
 
-        quantized_beats = (
-            round(beats / QUANTIZATION)
-            * QUANTIZATION
-        )
+        # Guarantee at least one grid step of duration
+        if q_end <= q_start:
+            q_end = q_start + GRID
 
-        quantized_beats = max(0.25, quantized_beats)
+        # If this note overlaps the previous one, push it right
+        if prev_end is not None and q_start < prev_end:
+            q_start = prev_end
+            if q_end <= q_start:
+                q_end = q_start + GRID
 
-        quantized.append((
-            round(midi_pitch),
-            quantized_beats
-        ))
+        # Insert a rest for any meaningful gap before this note
+        if prev_end is not None:
+            gap = round(q_start - prev_end, 6)
+            if gap >= MIN_REST:
+                rest_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - gap))
+                events.append(('rest', None, rest_dur))
 
-    return quantized
+        # Snap the beat-duration to the nearest conventional value
+        raw_dur  = round(q_end - q_start, 6)
+        best_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - raw_dur))
+        best_dur = max(best_dur, GRID)
+
+        events.append(('note', round(midi_pitch), best_dur))
+        prev_end = round(q_start + best_dur, 6)
+
+    return events
+
+
+# ============================================================
+# NOTATION QUALITY
+# ============================================================
+
+def merge_same_pitch_notes(events):
+    """
+    Merge consecutive same-pitch note events (with no rest between them)
+    into a single longer note, then re-snap to the nearest conventional duration.
+
+    Only safe to call when there are no lyrics to preserve, since merging
+    reduces the note count and would misalign lyric indices.
+    """
+    result = []
+    i = 0
+    while i < len(events):
+        ev = events[i]
+        if ev[0] != 'note':
+            result.append(ev)
+            i += 1
+            continue
+
+        _, pitch, dur = ev
+        total = dur
+        j = i + 1
+        while j < len(events) and events[j][0] == 'note' and events[j][1] == pitch:
+            total += events[j][2]
+            j += 1
+
+        if j > i + 1:
+            best = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - total))
+            result.append(('note', pitch, best))
+        else:
+            result.append(ev)
+        i = j
+    return result
+
+
+def simplify_notation(score):
+    """
+    Post-process a music21 Score to convert within-measure tied pairs into
+    their dotted-note equivalents.
+
+    Runs after makeNotation so ties at barlines are already correct;
+    this pass only collapses ties that remain inside a single measure.
+    """
+    from music21 import note as m21note
+
+    DOTTED_MAP = {
+        (1.0,  0.5):  1.5,   # quarter + eighth   → dotted quarter
+        (2.0,  1.0):  3.0,   # half    + quarter  → dotted half
+        (0.5,  0.25): 0.75,  # eighth  + 16th     → dotted eighth
+        (4.0,  2.0):  6.0,   # whole   + half     → dotted whole
+        (0.25, 0.125):0.375, # 16th    + 32nd     → dotted 16th
+    }
+
+    for part in score.parts:
+        for measure in part.getElementsByClass('Measure'):
+            changed = True
+            while changed:
+                changed = False
+                els = list(measure.getElementsByClass(['Note', 'Rest']))
+                for i in range(len(els) - 1):
+                    n1, n2 = els[i], els[i + 1]
+                    if (isinstance(n1, m21note.Note) and
+                            isinstance(n2, m21note.Note) and
+                            n1.pitch.midi == n2.pitch.midi and
+                            n1.tie is not None and n1.tie.type == 'start' and
+                            n2.tie is not None and n2.tie.type == 'stop'):
+                        key = (float(n1.quarterLength), float(n2.quarterLength))
+                        if key in DOTTED_MAP:
+                            n1.quarterLength = DOTTED_MAP[key]
+                            n1.tie = None
+                            measure.remove(n2)
+                            changed = True
+                            break
+    return score
 
 
 # ============================================================
@@ -419,7 +574,8 @@ def build_score(
     quantized_notes,
     bpm,
     detected_key,
-    detected_time_signature
+    detected_time_signature,
+    lyrics=None,
 ):
 
     score = stream.Score()
@@ -433,13 +589,35 @@ def build_score(
     part.insert(0, meter.TimeSignature(detected_time_signature))
     part.insert(0, detected_key)
 
-    for midi_pitch, dur in quantized_notes:
+    lyric_idx = 0
+    for event in quantized_notes:
+        # Support old 2-tuple format from rebuild_from_editor_notes
+        if len(event) == 2:
+            evt_type, pitch, dur = 'note', event[0], event[1]
+        else:
+            evt_type, pitch, dur = event
+
+        if evt_type == 'rest':
+            r = note.Rest()
+            r.quarterLength = dur
+            part.append(r)
+            continue
+
         n = note.Note()
-        n.pitch.midi = int(midi_pitch)
+        n.pitch.midi = int(pitch)
         n.quarterLength = dur
+        if lyrics and lyric_idx < len(lyrics) and lyrics[lyric_idx]:
+            n.addLyric(lyrics[lyric_idx])
+        lyric_idx += 1
         part.append(n)
 
     score.insert(0, part)
+
+    # Let music21 handle measure creation, barline ties, beaming, and
+    # accidentals, then fold any remaining within-measure ties into dotted notes.
+    score.makeNotation(inPlace=True)
+    simplify_notation(score)
+
     return score
 
 
@@ -597,21 +775,70 @@ def timed_notes_from_segments(segments):
 
 def render_pdf_lilypond(score, base_path: str) -> str:
     """
-    Render PDF via LilyPond. Returns path to the PDF file.
+    Render PDF via LilyPond with improved page layout.
 
-    music21 passes `fp` to LilyPond as a basename and adds `.pdf`.
-    If `fp` already ends in `.pdf`, LilyPond writes `name.pdf.pdf` and
-    leaves `name.pdf` as the .ly source — so we must omit the extension.
+    1. Use music21 to produce both the .ly source and an initial PDF.
+    2. Inject paper settings into the .ly to prevent the last system
+       from being clipped (ragged-last-bottom fix).
+    3. Re-run LilyPond on the patched .ly to produce the final PDF.
     """
+    import subprocess
+
     if base_path.endswith(".pdf"):
-        base_path = base_path[: -4]
+        base_path = base_path[:-4]
+
+    ly_path = base_path + ".ly"
+
+    # Step 1: music21 generates both .ly and PDF side-by-side
     score.write("lily.pdf", fp=base_path)
+
+    if not os.path.isfile(ly_path):
+        # Fall back to whatever PDF music21 produced
+        for candidate in (base_path + ".pdf", base_path + ".pdf.pdf"):
+            if os.path.isfile(candidate):
+                return candidate
+        raise FileNotFoundError(f"LilyPond produced no output at {base_path}")
+
+    # Step 2: patch the .ly file with proper page settings
+    with open(ly_path, "r", encoding="utf-8") as f:
+        ly = f.read()
+
+    paper = (
+        "\n\\paper {\n"
+        "  #(set-paper-size \"letter\")\n"
+        "  ragged-last-bottom = ##f\n"
+        "  ragged-bottom = ##f\n"
+        "  top-margin = 15\\mm\n"
+        "  bottom-margin = 15\\mm\n"
+        "  left-margin = 15\\mm\n"
+        "  right-margin = 15\\mm\n"
+        "}\n"
+    )
+
+    # Replace any existing \paper block, or insert before \score
+    if "\\paper" in ly:
+        ly = re.sub(r'\\paper\s*\{[^}]*\}', paper.strip(), ly, count=1, flags=re.DOTALL)
+    elif "\\score" in ly:
+        ly = ly.replace("\\score", paper + "\\score", 1)
+    else:
+        ly = paper + ly
+
+    with open(ly_path, "w", encoding="utf-8") as f:
+        f.write(ly)
+
+    # Step 3: re-run LilyPond on the patched source
+    result = subprocess.run(
+        ["lilypond", "-o", base_path, ly_path],
+        capture_output=True,
+        text=True,
+        cwd=os.path.dirname(base_path) or ".",
+    )
+
     pdf_path = base_path + ".pdf"
     if not os.path.isfile(pdf_path):
-        alt = base_path + ".pdf.pdf"
-        if os.path.isfile(alt):
-            return alt
-        raise FileNotFoundError(f"LilyPond did not create {pdf_path}")
+        stderr = (result.stderr or "")[-600:]
+        raise RuntimeError(f"LilyPond re-run failed.\n{stderr}")
+
     return pdf_path
 
 
@@ -647,7 +874,15 @@ def run_pipeline(input_file: str):
 
     detected_key = detect_key(segments)
     quantized = quantize_notes(segments, bpm)
-    score = build_score(quantized, bpm, detected_key, time_sig)
+    words = detect_lyrics(input_file)
+    lyrics = align_lyrics(words, segments)
+
+    # Merge consecutive same-pitch notes only when there are no lyrics to
+    # preserve — merging reduces the note count and would misalign lyric indices.
+    if not words:
+        quantized = merge_same_pitch_notes(quantized)
+
+    score = build_score(quantized, bpm, detected_key, time_sig, lyrics=lyrics)
 
     duration = float(librosa.get_duration(path=input_file))
 
