@@ -1,5 +1,5 @@
 """
-FastAPI server for the tfinal.py transcription pipeline.
+FastAPI server for the transcription pipeline.
 """
 
 import asyncio
@@ -17,11 +17,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 
-from tfinal import (
+from pipeline import transcribe_file
+from score import (
+    clean_musicxml,
     export_score_pdf,
     rebuild_from_editor_notes,
     score_notes_from_musicxml,
-    transcribe_file,
 )
 
 APP_DIR = Path(__file__).parent
@@ -30,6 +31,7 @@ EDITOR_FILE = APP_DIR / "editor.html"
 REHEARSAL_FILE = APP_DIR / "rehearsal.html"
 
 app = FastAPI(title="Melody Transcription API", version="1.0.0")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +56,8 @@ ALLOWED_CONTENT_TYPES = {
     "audio/webm",
     "application/octet-stream",
 }
+
+VALID_TIME_SIGNATURES = {"4/4", "3/4", "6/8", "2/4", "2/2", "12/8", "5/4", "7/8"}
 
 
 class TimedNote(BaseModel):
@@ -109,7 +113,7 @@ async def health_check():
 async def serve_frontend():
     if FRONTEND_FILE.exists():
         return FileResponse(FRONTEND_FILE)
-    return JSONResponse({"message": "Frontend not found. Place index.html next to backend_main.py."})
+    return JSONResponse({"message": "Frontend not found. Place index.html next to server.py."})
 
 
 @app.get("/editor")
@@ -130,9 +134,7 @@ async def serve_rehearsal():
 async def parse_score(body: ExportRequest):
     try:
         notes = score_notes_from_musicxml(body.musicxml)
-        return ParseScoreResponse(
-            score_notes=[ScoreNote(**n) for n in notes],
-        )
+        return ParseScoreResponse(score_notes=[ScoreNote(**n) for n in notes])
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -141,11 +143,7 @@ async def parse_score(body: ExportRequest):
 async def rebuild_score(body: RebuildRequest):
     try:
         payload = [
-            {
-                "pitch": n.pitch,
-                "note": n.note,
-                "quarter_length": n.quarter_length,
-            }
+            {"pitch": n.pitch, "note": n.note, "quarter_length": n.quarter_length}
             for n in body.score_notes
         ]
         if not payload:
@@ -165,9 +163,6 @@ async def rebuild_score(body: RebuildRequest):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-
-VALID_TIME_SIGNATURES = {"4/4", "3/4", "6/8", "2/4", "2/2", "12/8", "5/4", "7/8"}
 
 
 @app.post("/transcribe", response_model=TranscriptionResponse)
@@ -210,10 +205,7 @@ async def transcribe_audio(
 
     processing_time = (datetime.now() - start).total_seconds()
 
-    return TranscriptionResponse(
-        processing_time=processing_time,
-        **result,
-    )
+    return TranscriptionResponse(processing_time=processing_time, **result)
 
 
 @app.post("/export/musicxml")
@@ -227,10 +219,7 @@ async def export_musicxml(body: ExportRequest):
 
 @app.post("/export/pdf")
 async def export_pdf(body: ExportRequest):
-    import io
     from music21 import converter
-
-    from tfinal import clean_musicxml
 
     score = converter.parse(clean_musicxml(body.musicxml), format="musicxml")
     pdf_bytes, pdf_error = export_score_pdf(score)
@@ -253,7 +242,6 @@ async def export_pdf(body: ExportRequest):
 
 @app.post("/export/midi")
 async def export_midi(body: ExportRequest):
-    import io
     from music21 import converter
 
     try:
@@ -276,6 +264,5 @@ async def export_midi(body: ExportRequest):
 if __name__ == "__main__":
     import uvicorn
 
-    # Port 8000 is often taken (e.g. Docker). Use 8765 for this app.
     PORT = int(os.environ.get("PORT", "8765"))
-    uvicorn.run("backend_main:app", host="0.0.0.0", port=PORT, reload=True)
+    uvicorn.run("server:app", host="0.0.0.0", port=PORT, reload=True)
