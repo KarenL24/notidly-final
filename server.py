@@ -31,6 +31,7 @@ EDITOR_FILE = APP_DIR / "editor.html"
 REHEARSAL_FILE = APP_DIR / "rehearsal.html"
 
 app = FastAPI(title="Melody Transcription API", version="1.0.0")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 
 app.add_middleware(
     CORSMiddleware,
