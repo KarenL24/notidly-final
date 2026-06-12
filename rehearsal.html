@@ -647,6 +647,21 @@
       </div>
 
       <div class="field">
+        <label>Time Signature</label>
+        <select id="partTimeSig">
+          <option value="">Auto-detect</option>
+          <option value="4/4">4/4</option>
+          <option value="3/4">3/4</option>
+          <option value="6/8">6/8</option>
+          <option value="2/4">2/4</option>
+          <option value="2/2">2/2 (cut time)</option>
+          <option value="12/8">12/8</option>
+          <option value="5/4">5/4</option>
+          <option value="7/8">7/8</option>
+        </select>
+      </div>
+
+      <div class="field">
         <label>Clef</label>
         <select id="partClef">
           <option value="Treble">Treble</option>
@@ -944,6 +959,7 @@
     // Reset form
     document.getElementById('partName').value = '';
     document.getElementById('partKey').value = 'auto';
+    document.getElementById('partTimeSig').value = '';
     document.getElementById('partClef').value = 'Treble';
     document.getElementById('recordingState').classList.remove('visible');
     document.getElementById('createBtn').disabled = false;
@@ -1041,8 +1057,20 @@
     }
   }
 
+  // ── Time signature override ───────────────────────────────────────────
+  function overrideTimeSig(xml, timeSig) {
+    const parts = timeSig.split('/');
+    if (parts.length !== 2) return xml;
+    const [beats, beatType] = parts;
+    return xml
+      .replace(/<beats>\d+<\/beats>/g, `<beats>${beats}</beats>`)
+      .replace(/<beat-type>\d+<\/beat-type>/g, `<beat-type>${beatType}</beat-type>`);
+  }
+
   // ── Transcribe + merge ────────────────────────────────────────────────
   async function transcribeAndAdd(fileOrBlob, partName) {
+    // Read form values before closing panel
+    const timeSig = document.getElementById('partTimeSig')?.value || '';
     closeAddPartPanel();
     setLoading(true, `Transcribing "${partName}"…`);
 
@@ -1051,6 +1079,7 @@
       ? fileOrBlob.name
       : `${partName.replace(/\s+/g, '_')}.webm`;
     form.append('file', fileOrBlob, fileName);
+    if (timeSig) form.append('time_signature', timeSig);
 
     try {
       const res = await fetch(`${API}/transcribe`, { method: 'POST', body: form });
@@ -1058,6 +1087,9 @@
       const result = await res.json();
 
       let xml = result.musicxml;
+
+      // Apply time signature override (belt-and-suspenders: backend also uses it)
+      if (timeSig) xml = overrideTimeSig(xml, timeSig);
 
       // Apply key override if user specified one
       const keyVal = document.getElementById('partKey')?.value || 'auto';

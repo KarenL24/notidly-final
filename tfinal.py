@@ -861,11 +861,11 @@ def export_score_pdf(score) -> tuple:
             return None, str(exc)
 
 
-def run_pipeline(input_file: str):
+def run_pipeline(input_file: str, time_signature: str = None):
     """Run transcription and return (score, metadata dict)."""
     audio = load_audio(input_file)
     bpm = detect_tempo(audio)
-    time_sig = detect_time_signature(audio, bpm)
+    time_sig = time_signature if time_signature else detect_time_signature(audio, bpm)
 
     times, freq, conf = extract_pitch(audio)
     freq = remove_fry(freq, conf)
@@ -896,12 +896,12 @@ def run_pipeline(input_file: str):
     }
 
 
-def transcribe_file(input_file: str) -> dict:
+def transcribe_file(input_file: str, time_signature: str = None) -> dict:
     """Full pipeline for the web API: score artifacts + metadata."""
     import base64
     import tempfile
 
-    score, meta = run_pipeline(input_file)
+    score, meta = run_pipeline(input_file, time_signature=time_signature)
 
     with tempfile.TemporaryDirectory() as tmp:
         midi_path = os.path.join(tmp, "output.mid")

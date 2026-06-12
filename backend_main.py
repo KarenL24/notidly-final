@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -167,14 +167,23 @@ async def rebuild_score(body: RebuildRequest):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+VALID_TIME_SIGNATURES = {"4/4", "3/4", "6/8", "2/4", "2/2", "12/8", "5/4", "7/8"}
+
+
 @app.post("/transcribe", response_model=TranscriptionResponse)
-async def transcribe_audio(file: UploadFile = File(...)):
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    time_signature: Optional[str] = Form(None),
+):
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS and file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail="Unsupported format. Upload MP3, WAV, M4A, OGG, or FLAC.",
         )
+
+    if time_signature and time_signature not in VALID_TIME_SIGNATURES:
+        raise HTTPException(status_code=400, detail=f"Invalid time signature: {time_signature}")
 
     suffix = ext if ext else ".mp3"
     content = await file.read()
@@ -187,7 +196,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
     loop = asyncio.get_event_loop()
 
     try:
-        result = await loop.run_in_executor(executor, transcribe_file, tmp_path)
+        result = await loop.run_in_executor(
+            executor,
+            transcribe_file,
+            tmp_path,
+            time_signature or None,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
