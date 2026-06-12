@@ -287,6 +287,7 @@ function renderTracks() {
       <div class="track-btns">
         <button class="track-btn" id="mute-${i}" title="Mute" onclick="toggleMute(event,${i})">🔇</button>
         <button class="track-btn" title="Solo" onclick="event.stopPropagation()">🎧</button>
+        <button class="track-btn" title="Delete" onclick="deleteTrack(event, ${i})">🗑️</button>
       </div>`;
     el.addEventListener('click', () => {
       list.querySelectorAll('.track-item').forEach(t => t.classList.remove('active'));
@@ -294,6 +295,50 @@ function renderTracks() {
     });
     list.appendChild(el);
   });
+}
+
+function deleteTrack(e, i) {
+  e.stopPropagation();
+  if (!confirm(`Delete recording "${parts[i].name}"? This cannot be undone.`)) return;
+
+  // Remove the part
+  parts.splice(i, 1);
+
+  // Rebuild mutedParts set to shift indices down and drop deleted index
+  const newMuted = new Set();
+  mutedParts.forEach(idx => {
+    if (idx === i) return; // removed track
+    newMuted.add(idx > i ? idx - 1 : idx);
+  });
+  mutedParts.clear();
+  newMuted.forEach(v => mutedParts.add(v));
+
+  // Rebuild combinedXML from remaining parts
+  if (parts.length === 0) {
+    combinedXML = null;
+    // Clear the OSMD container and reset state
+    const c = document.getElementById('osmd-container');
+    if (c) c.innerHTML = '';
+    osmd = null;
+    document.getElementById('playBtn').disabled = true;
+    document.getElementById('uploadPrompt').style.display = '';
+    document.getElementById('keyDisplay').textContent = '';
+  } else {
+    // Build combinedXML: start from first part and merge rest
+    combinedXML = parts[0].xml;
+    for (let j = 1; j < parts.length; j++) {
+      combinedXML = mergePart(combinedXML, parts[j].xml, parts[j].name, j + 1);
+    }
+    // Update bpm/title from first part
+    bpm = Math.round(parts[0].bpm || bpm);
+    document.getElementById('bpmInput').value = bpm;
+    document.getElementById('titleInput').value = parts[0].name;
+    renderScore(combinedXML);
+    document.getElementById('playBtn').disabled = false;
+  }
+
+  renderTracks();
+  showToast('Recording deleted');
 }
 
 function fmtDur(sec) {
