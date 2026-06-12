@@ -15,9 +15,9 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend_main.py tfinal.py index.html editor.html ./
+COPY server.py pipeline.py score.py rehearsal.html editor.html ./
 
 ENV PORT=7860
 EXPOSE 7860
 
-CMD ["uvicorn", "backend_main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "7860"]
