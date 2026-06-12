@@ -10,3 +10,4 @@ matplotlib
 torch
 tensorflow-cpu
 crepe
+openai-whisper

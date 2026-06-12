@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notidly</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/opensheetmusicdisplay@1.8.4/build/opensheetmusicdisplay.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --orange: #F5893A;
+      --orange-dark: #E07820;
+      --bg: #EFEFEF;
+      --white: #FFFFFF;
+      --border: #E8E8E8;
+      --text: #1A1A1A;
+      --muted: #6B6B6B;
+      --font: 'Inter', sans-serif;
+    }
+
+    body { font-family: var(--font); background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── HEADER ── */
+    .header { display: flex; align-items: center; gap: 16px; padding: 0 20px; height: 60px; background: var(--white); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .logo { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; flex-shrink: 0; }
+    .title-input { font-family: var(--font); font-size: 15px; font-weight: 500; border: none; outline: none; background: transparent; color: var(--text); flex: 1; min-width: 0; }
+    .title-input:hover, .title-input:focus { background: #F5F5F5; border-radius: 6px; padding: 4px 8px; }
+    .mode-toggle { display: flex; background: #F0F0F0; border-radius: 8px; padding: 3px; flex-shrink: 0; }
+    .mode-btn { font-family: var(--font); font-size: 13px; font-weight: 500; padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer; background: transparent; color: var(--muted); transition: all 0.15s; }
+    .mode-btn.active { background: var(--white); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .saved-status { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+    .export-dropdown { position: relative; }
+    .export-btn { font-family: var(--font); font-size: 14px; font-weight: 600; padding: 8px 20px; background: var(--orange); color: white; border: none; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
+    .export-btn:hover { background: var(--orange-dark); }
+    .export-menu { display: none; position: absolute; right: 0; top: calc(100% + 8px); background: var(--white); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); min-width: 160px; overflow: hidden; z-index: 100; }
+    .export-menu.open { display: block; }
+    .export-menu-item { display: flex; align-items: center; gap: 10px; padding: 11px 16px; font-size: 13px; cursor: pointer; }
+    .export-menu-item:hover { background: #F5F5F5; }
+
+    /* ── LAYOUT ── */
+    .layout { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { width: 300px; background: var(--white); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.2s; overflow: hidden; }
+    .sidebar.collapsed { width: 0; border-right: none; }
+    .sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; font-size: 14px; font-weight: 600; flex-shrink: 0; }
+    .collapse-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; }
+    .tracks-list { overflow-y: auto; padding: 4px 12px; }
+    .track-item { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: background 0.1s; }
+    .track-item:hover { background: #F8F8F8; }
+    .track-item.active { border-color: var(--orange); background: #FFF5EE; }
+    .track-icon { width: 34px; height: 34px; border-radius: 7px; background: #F0F0F0; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .track-info { flex: 1; min-width: 0; }
+    .track-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .track-btns { display: flex; gap: 4px; }
+    .track-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: var(--white); cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; transition: all 0.1s; }
+    .track-btn:hover { background: #F0F0F0; }
+    .track-btn.on { background: #FFE8D9; border-color: var(--orange); }
+
+    /* Add Part button at bottom of tracks */
+    .add-part-btn { font-family: var(--font); margin: 12px; padding: 10px; background: var(--orange); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; flex-shrink: 0; }
+    .add-part-btn:hover { background: var(--orange-dark); }
+    .add-part-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    /* ── ADD PART PANEL ── */
+    .add-part-panel { display: none; flex-direction: column; flex: 1; overflow-y: auto; padding: 20px; gap: 16px; }
+    .add-part-panel.visible { display: flex; }
+
+    .panel-title { font-size: 16px; font-weight: 700; }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+    .field input[type="text"],
+    .field select {
+      font-family: var(--font);
+      font-size: 14px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      outline: none;
+      background: var(--white);
+      color: var(--text);
+      width: 100%;
+    }
+
+    .field input[type="text"]:focus,
+    .field select:focus { border-color: var(--orange); }
+
+    /* Radio mode buttons */
+    .mode-options { display: flex; flex-direction: column; gap: 8px; }
+
+    .mode-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 2px solid var(--border);
+      cursor: pointer;
+      transition: all 0.15s;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .mode-option.selected { border-color: var(--orange); background: #FFF5EE; }
+
+    .mode-radio {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s;
+    }
+
+    .mode-option.selected .mode-radio { border-color: var(--orange); background: var(--orange); }
+    .mode-option.selected .mode-radio::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: white; }
+
+    /* Recording state */
+    .recording-state { display: none; flex-direction: column; align-items: center; gap: 12px; padding: 16px; background: #FFF5EE; border-radius: 10px; border: 2px solid var(--orange); }
+    .recording-state.visible { display: flex; }
+    .record-dot { width: 14px; height: 14px; border-radius: 50%; background: #E53E3E; animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+    .record-countdown { font-size: 28px; font-weight: 700; color: var(--orange); }
+    .record-label { font-size: 12px; color: var(--muted); }
+    .stop-btn { font-family: var(--font); padding: 8px 20px; background: #E53E3E; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+    .panel-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+    .create-btn { font-family: var(--font); padding: 12px; background: var(--orange); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+    .create-btn:hover { background: var(--orange-dark); }
+    .create-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .cancel-btn { font-family: var(--font); padding: 8px; background: none; border: none; font-size: 13px; color: var(--muted); cursor: pointer; text-align: center; }
+    .cancel-btn:hover { color: var(--text); }
+
+    /* ── MAIN ── */
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 10px 20px; background: var(--white); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .play-btn { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--orange); color: white; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
+    .play-btn:hover { background: var(--orange-dark); }
+    .play-btn:disabled { background: #ccc; cursor: not-allowed; }
+    .bpm-row { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; }
+    .bpm-input { font-family: var(--font); font-size: 14px; font-weight: 600; width: 52px; border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; text-align: center; outline: none; }
+    .bpm-input:focus { border-color: var(--orange); }
+    .toggle-wrap { position: relative; width: 40px; height: 22px; flex-shrink: 0; }
+    .toggle-wrap input { display: none; }
+    .toggle-track { position: absolute; inset: 0; background: #D0D0D0; border-radius: 11px; cursor: pointer; transition: background 0.2s; }
+    .toggle-track::before { content: ''; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 3px; left: 3px; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+    .toggle-wrap input:checked + .toggle-track { background: var(--orange); }
+    .toggle-wrap input:checked + .toggle-track::before { transform: translateX(18px); }
+
+    .score-area { flex: 1; overflow-y: auto; padding: 24px; }
+    .score-card { background: var(--white); border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.08); padding: 32px; min-height: 360px; position: relative; }
+
+    .upload-prompt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; height: 300px; color: var(--muted); }
+    .upload-prompt-icon { font-size: 48px; }
+    .upload-prompt p { font-size: 15px; font-weight: 500; color: var(--text); }
+    .upload-prompt span { font-size: 13px; }
+    .upload-file-btn { font-family: var(--font); padding: 10px 24px; background: var(--orange); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 4px; }
+
+    .loading-overlay { display: none; position: absolute; inset: 0; background: rgba(255,255,255,0.9); border-radius: 12px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 10; }
+    .loading-overlay.visible { display: flex; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--orange); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-title { font-size: 15px; font-weight: 600; }
+    .loading-sub { font-size: 13px; color: var(--muted); }
+
+    #osmd-container { width: 100%; }
+
+    /* ── TOOLBAR (info bar) ── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .play-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: var(--orange);
+      color: white;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .play-btn:hover { background: var(--orange-dark); }
+    .play-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 20px;
+      background: var(--border);
+      margin: 0 4px;
+      flex-shrink: 0;
+    }
+
+    .info-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .info-label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .info-value {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tempo-input {
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      width: 46px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 6px;
+      text-align: center;
+      outline: none;
+    }
+    .tempo-input:focus { border-color: var(--orange); }
+
+    .metronome-pill {
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: none;
+      cursor: pointer;
+      background: #E0E0E0;
+      color: var(--muted);
+      transition: all 0.15s;
+      letter-spacing: 0.04em;
+    }
+    .metronome-pill.on { background: var(--orange); color: white; }
+
+    .speed-select {
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 6px;
+      outline: none;
+      background: var(--white);
+      cursor: pointer;
+    }
+    .speed-select:focus { border-color: var(--orange); }
+
+    /* ── OSMD cursor → orange playhead ── */
+    .osmd-cursor-line-following, .osmd-cursor {
+      background-color: rgba(245, 137, 58, 0.15) !important;
+      border-left: 3px solid #F5893A !important;
+      z-index: 5 !important;
+      opacity: 1 !important;
+    }
+
+    /* ── EDIT TOOLBAR ── */
+    .edit-toolbar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .edit-toolbar.visible { display: flex; }
+
+    .edit-group {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+
+    .edit-label {
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    /* Shared dropdown trigger used in edit toolbar */
+    .edit-dropdown { position: relative; }
+
+    .edit-dropdown-btn {
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--white);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 0.15s;
+      white-space: nowrap;
+    }
+    .edit-dropdown-btn:hover, .edit-dropdown-btn.open { border-color: var(--orange); }
+
+    .edit-dropdown-menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+      min-width: 180px;
+      z-index: 50;
+      overflow: hidden;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .edit-dropdown-menu.open { display: block; }
+
+    .edit-dropdown-item {
+      padding: 9px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .edit-dropdown-item:hover { background: #F5F5F5; }
+    .edit-dropdown-item.active { color: var(--orange); font-weight: 600; background: #FEF0E4; }
+
+    .edit-dropdown-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }
+
+    .edit-dropdown-group-label {
+      padding: 6px 14px 2px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    /* Toast notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1A1A1A;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transition: all 0.25s;
+      pointer-events: none;
+      z-index: 2000;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── EXPORT MODAL ── */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--white);
+      border-radius: 18px;
+      padding: 32px;
+      width: 560px;
+      max-width: calc(100vw - 48px);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+      position: relative;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .modal-title { font-size: 22px; font-weight: 700; }
+
+    .modal-close {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: none;
+      background: #F0F0F0;
+      font-size: 18px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      line-height: 1;
+    }
+    .modal-close:hover { background: #E0E0E0; }
+
+    .format-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 28px;
+    }
+
+    .format-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 8px 14px;
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: var(--white);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .format-card:hover { border-color: var(--orange); }
+    .format-card.selected { background: #FEF0E4; border-color: transparent; }
+
+    .format-icon {
+      width: 48px;
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .export-row {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .export-row-label {
+      font-size: 15px;
+      font-weight: 600;
+      min-width: 90px;
+    }
+
+    /* Custom select */
+    .custom-select-wrap { position: relative; flex: 1; }
+
+    .custom-select-btn {
+      font-family: var(--font);
+      font-size: 14px;
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--white);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      outline: none;
+    }
+    .custom-select-btn:focus, .custom-select-btn.open { border-color: var(--orange); }
+
+    .custom-select-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0; right: 0;
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+      z-index: 10;
+      overflow: hidden;
+    }
+    .custom-select-dropdown.open { display: block; }
+
+    .custom-select-option {
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .custom-select-option:hover { background: #F5F5F5; }
+    .custom-select-option.selected { background: #FEF0E4; color: var(--orange); font-weight: 600; }
+
+    .export-checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .export-checkbox-row input { width: 18px; height: 18px; accent-color: var(--orange); cursor: pointer; }
+    .info-icon { color: var(--muted); font-size: 16px; cursor: help; }
+
+    .download-btn {
+      font-family: var(--font);
+      width: 100%;
+      padding: 15px;
+      background: var(--orange);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .download-btn:hover { background: var(--orange-dark); }
+    .download-btn:disabled { background: #ccc; cursor: not-allowed; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #D0D0D0; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="logo">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--orange)">
+      <path d="M4 20 Q7 10 10 14 Q13 18 16 8 Q19 -2 22 14 Q24 22 26 18" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span>Notidly</span>
+  </div>
+  <input class="title-input" id="titleInput" value="Untitled Score" spellcheck="false">
+  <div class="mode-toggle">
+    <button class="mode-btn" id="editBtn" onclick="switchMode('edit')">Edit Mode</button>
+    <button class="mode-btn active" id="rehearsalBtn" onclick="switchMode('rehearsal')">Rehearsal Mode</button>
+  </div>
+  <span class="saved-status" id="savedStatus">Saved</span>
+  <button class="export-btn" onclick="openExportModal()">Export</button>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span>Tracks</span>
+      <button class="collapse-btn" id="collapseBtn" onclick="toggleSidebar()">▾</button>
+    </div>
+
+    <!-- Tracks list -->
+    <div class="tracks-list" id="tracksList">
+      <div style="padding:20px 8px;color:var(--muted);font-size:13px;text-align:center">
+        Upload an audio file to get started
+      </div>
+    </div>
+
+    <!-- Add Part button -->
+    <button class="add-part-btn" id="addPartBtn" onclick="openAddPartPanel()">+ Add Part</button>
+
+    <!-- Add New Part panel (hidden until + Add Part clicked) -->
+    <div class="add-part-panel" id="addPartPanel">
+      <div class="panel-title">Add New Part</div>
+
+      <div class="field">
+        <label>Part Name</label>
+        <input type="text" id="partName" placeholder="e.g. Soprano">
+      </div>
+
+      <div class="field">
+        <label>Instrument</label>
+        <select id="partInstrument">
+          <option value="voice">🎤  Voice</option>
+          <option value="piano">🎹  Piano</option>
+          <option value="violin">🎻  Violin</option>
+          <option value="cello">🎻  Cello</option>
+          <option value="guitar">🎸  Guitar</option>
+          <option value="trumpet">🎺  Trumpet</option>
+          <option value="flute">🎷  Flute</option>
+          <option value="saxophone">🎷  Saxophone</option>
+          <option value="drums">🥁  Drums</option>
+          <option value="other">🎵  Other</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Key</label>
+        <select id="partKey">
+          <option value="auto">Auto-detect</option>
+          <optgroup label="Major">
+            <option value="C">C Major</option>
+            <option value="G">G Major</option>
+            <option value="D">D Major</option>
+            <option value="A">A Major</option>
+            <option value="E">E Major</option>
+            <option value="B">B Major</option>
+            <option value="F#">F# Major</option>
+            <option value="F">F Major</option>
+            <option value="Bb">B♭ Major</option>
+            <option value="Eb">E♭ Major</option>
+            <option value="Ab">A♭ Major</option>
+          </optgroup>
+          <optgroup label="Minor">
+            <option value="Am">A Minor</option>
+            <option value="Em">E Minor</option>
+            <option value="Bm">B Minor</option>
+            <option value="F#m">F# Minor</option>
+            <option value="Dm">D Minor</option>
+            <option value="Gm">G Minor</option>
+            <option value="Cm">C Minor</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Time Signature</label>
+        <select id="partTimeSig">
+          <option value="">Auto-detect</option>
+          <option value="4/4">4/4</option>
+          <option value="3/4">3/4</option>
+          <option value="6/8">6/8</option>
+          <option value="2/4">2/4</option>
+          <option value="2/2">2/2 (cut time)</option>
+          <option value="12/8">12/8</option>
+          <option value="5/4">5/4</option>
+          <option value="7/8">7/8</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Clef</label>
+        <select id="partClef">
+          <option value="Treble">Treble</option>
+          <option value="Bass">Bass</option>
+          <option value="Alto">Alto</option>
+          <option value="Tenor">Tenor</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Mode</label>
+        <div class="mode-options">
+          <div class="mode-option selected" id="optRecord" onclick="selectInputMode('record')">
+            <div class="mode-radio"></div>
+            <span>Record live</span>
+          </div>
+          <div class="mode-option" id="optUpload" onclick="selectInputMode('upload')">
+            <div class="mode-radio"></div>
+            <span>Upload Audio</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recording countdown (shown while recording) -->
+      <div class="recording-state" id="recordingState">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="record-dot"></div>
+          <span style="font-size:13px;font-weight:600;color:#E53E3E">Recording</span>
+        </div>
+        <div class="record-countdown" id="recordCountdown">30</div>
+        <div class="record-label">seconds remaining</div>
+        <button class="stop-btn" onclick="stopRecording()">Stop Early</button>
+      </div>
+
+      <div class="panel-actions">
+        <button class="create-btn" id="createBtn" onclick="createPart()">Create Part</button>
+        <button class="cancel-btn" onclick="closeAddPartPanel()">Cancel</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main">
+    <div class="toolbar" id="rehearsalToolbar">
+      <button class="play-btn" id="playBtn" onclick="togglePlayback()" disabled>▶</button>
+      <div class="toolbar-divider"></div>
+      <div class="info-item">
+        <span class="info-label">Key:</span>
+        <span class="info-value" id="keyDisplay">—</span>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="info-item">
+        <span class="info-label">Tempo:</span>
+        <input class="tempo-input" id="bpmInput" type="number" value="120" min="30" max="300" onchange="updateBPM(this.value)">
+        <span class="info-label">BPM</span>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="info-item">
+        <span class="info-label">Metronome</span>
+        <button class="metronome-pill" id="metronomePill" onclick="toggleMetronomeBtn()">OFF</button>
+      </div>
+      <div class="toolbar-divider"></div>
+      <div class="info-item">
+        <span class="info-label">Speed:</span>
+        <select class="speed-select" id="speedSelect" onchange="updateSpeed(this.value)">
+          <option value="0.5">50%</option>
+          <option value="0.75">75%</option>
+          <option value="1" selected>100%</option>
+          <option value="1.25">125%</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Edit Mode toolbar (hidden in rehearsal mode) -->
+    <div class="edit-toolbar" id="editToolbar">
+
+      <!-- Transpose -->
+      <div class="edit-group">
+        <span class="edit-label">Transpose:</span>
+        <div class="edit-dropdown">
+          <button class="edit-dropdown-btn" id="transposeBtn" onclick="toggleEditDropdown('transposeMenu', this)">
+            <span id="transposeBtnLabel">—</span>
+            <span style="font-size:10px">▾</span>
+          </button>
+          <div class="edit-dropdown-menu" id="transposeMenu">
+            <div class="edit-dropdown-group-label">Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('C')">C Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('G')">G Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('D')">D Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('A')">A Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('E')">E Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('B')">B Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('F#')">F♯ Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('F')">F Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Bb')">B♭ Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Eb')">E♭ Major</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Ab')">A♭ Major</div>
+            <div class="edit-dropdown-divider"></div>
+            <div class="edit-dropdown-group-label">Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Am')">A Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Em')">E Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Bm')">B Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('F#m')">F♯ Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Dm')">D Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Gm')">G Minor</div>
+            <div class="edit-dropdown-item" onclick="applyTranspose('Cm')">C Minor</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Markings -->
+      <div class="edit-dropdown">
+        <button class="edit-dropdown-btn" onclick="toggleEditDropdown('markingsMenu', this)">
+          Markings <span style="font-size:10px">▾</span>
+        </button>
+        <div class="edit-dropdown-menu" id="markingsMenu">
+          <div class="edit-dropdown-group-label">Dynamics</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('pp')"><i>pp</i> Pianissimo</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('p')"><i>p</i> Piano</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('mp')"><i>mp</i> Mezzo-piano</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('mf')"><i>mf</i> Mezzo-forte</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('f')"><i>f</i> Forte</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('ff')"><i>ff</i> Fortissimo</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('sfz')"><i>sfz</i> Sforzando</div>
+          <div class="edit-dropdown-divider"></div>
+          <div class="edit-dropdown-group-label">Tempo</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('text:Andante')">Andante</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('text:Moderato')">Moderato</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('text:Allegro')">Allegro</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('text:Adagio')">Adagio</div>
+          <div class="edit-dropdown-divider"></div>
+          <div class="edit-dropdown-group-label">Rehearsal Marks</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('rehearsal:A')">A</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('rehearsal:B')">B</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('rehearsal:INTRO')">INTRO</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('rehearsal:VERSE')">VERSE</div>
+          <div class="edit-dropdown-item" onclick="applyMarking('rehearsal:CHORUS')">CHORUS</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="score-area">
+      <div class="score-card" id="scoreCard">
+        <div class="loading-overlay" id="loadingOverlay">
+          <div class="spinner"></div>
+          <div class="loading-title" id="loadingTitle">Transcribing audio…</div>
+          <div class="loading-sub">This can take 30–60 seconds</div>
+        </div>
+        <div class="upload-prompt" id="uploadPrompt">
+          <div class="upload-prompt-icon">🎙️</div>
+          <p>No score yet</p>
+          <span>Click "+ Add Part" to record or upload audio</span>
+          <button class="upload-file-btn" onclick="openAddPartPanel()">+ Add Part</button>
+        </div>
+        <div id="osmd-container"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<input type="file" id="fileInput" accept=".mp3,.wav,.m4a,.ogg,.flac,.webm" style="display:none" onchange="handleFileChosen(event)">
+<div class="toast" id="toast"></div>
+
+<!-- EXPORT MODAL -->
+<div class="modal-backdrop" id="exportModal" onclick="closeExportModal()">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title">Export</span>
+      <button class="modal-close" onclick="closeExportModal()">✕</button>
+    </div>
+
+    <!-- Format selector -->
+    <div class="format-grid">
+      <div class="format-card selected" data-fmt="pdf" onclick="selectExportFormat('pdf')">
+        <div class="format-icon">
+          <svg width="44" height="48" viewBox="0 0 44 48" fill="none">
+            <rect width="44" height="48" rx="6" fill="#E53935"/>
+            <rect x="6" y="6" width="32" height="36" rx="3" fill="white" opacity="0.15"/>
+            <text x="22" y="29" font-family="Arial" font-weight="900" font-size="13" fill="white" text-anchor="middle">PDF</text>
+          </svg>
+        </div>
+        PDF
+      </div>
+      <div class="format-card" data-fmt="midi" onclick="selectExportFormat('midi')">
+        <div class="format-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="6" fill="#1A1A1A"/>
+            <text x="24" y="30" font-family="Arial" font-weight="900" font-size="12" fill="white" text-anchor="middle">MIDI</text>
+          </svg>
+        </div>
+        MIDI
+      </div>
+      <div class="format-card" data-fmt="musicxml" onclick="selectExportFormat('musicxml')">
+        <div class="format-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <circle cx="24" cy="24" r="24" fill="#2E7D32"/>
+            <text x="24" y="21" font-family="Arial" font-weight="700" font-size="9" fill="white" text-anchor="middle">Music</text>
+            <text x="24" y="32" font-family="Arial" font-weight="700" font-size="9" fill="white" text-anchor="middle">XML</text>
+          </svg>
+        </div>
+        MusicXML
+      </div>
+      <div class="format-card" data-fmt="audio" onclick="selectExportFormat('audio')">
+        <div class="format-icon">
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+            <rect width="48" height="48" rx="6" fill="#F5F5F5"/>
+            <g stroke="#1A1A1A" stroke-width="2.5" stroke-linecap="round">
+              <line x1="6"  y1="24" x2="6"  y2="24"/>
+              <line x1="11" y1="20" x2="11" y2="28"/>
+              <line x1="16" y1="14" x2="16" y2="34"/>
+              <line x1="21" y1="18" x2="21" y2="30"/>
+              <line x1="26" y1="10" x2="26" y2="38"/>
+              <line x1="31" y1="16" x2="31" y2="32"/>
+              <line x1="36" y1="20" x2="36" y2="28"/>
+              <line x1="41" y1="22" x2="41" y2="26"/>
+            </g>
+          </svg>
+        </div>
+        Audio
+      </div>
+    </div>
+
+    <!-- Parts -->
+    <div class="export-row">
+      <span class="export-row-label">Parts:</span>
+      <div class="custom-select-wrap">
+        <button class="custom-select-btn" id="partsSelectBtn" onclick="togglePartsDropdown()">
+          <span id="partsSelectLabel">All Parts</span>
+          <span>▾</span>
+        </button>
+        <div class="custom-select-dropdown" id="partsDropdown">
+          <!-- populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Instrument -->
+    <div class="export-row">
+      <span class="export-row-label">Instrument:</span>
+      <div class="custom-select-wrap">
+        <button class="custom-select-btn">
+          <span>None</span>
+          <span>▾</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Split audio -->
+    <div class="export-checkbox-row">
+      <input type="checkbox" id="splitAudioCheck">
+      <label for="splitAudioCheck">Split Audio Files</label>
+      <span class="info-icon" title="Export each part as a separate audio file">ⓘ</span>
+    </div>
+
+    <button class="download-btn" onclick="downloadExport()">Download</button>
+  </div>
+</div>
+
+<script>
+  const DEV_PORTS = new Set(['3000','3001','5500','5501','8080','4000']);
+  const API = (window.location.protocol === 'file:' || DEV_PORTS.has(window.location.port))
+    ? 'http://localhost:8765'
+    : window.location.origin;
+
+  // ── State ─────────────────────────────────────────────────────────────
+  let osmd = null;
+  let combinedXML = null;
+  let parts = [];
+  let bpm = 120;
+  let speedMultiplier = 1;
+  let metronomeLoop = null;
+  let metronomeSynth = null;
+  let isMetronomeOn = false;
+  let isPlaying = false;
+  let playbackSynth = null;
+  let playheadRAF = null;
+  let totalDurationSec = 0;
+  const mutedParts = new Set();
+
+  let inputMode = 'record';   // 'record' | 'upload'
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordingTimer = null;
+  let countdownInterval = null;
+
+  // ── Add Part panel ────────────────────────────────────────────────────
+  function openAddPartPanel() {
+    switchMode('edit');
+    document.getElementById('addPartBtn').style.display = 'none';
+    document.getElementById('tracksList').style.flex = '0 0 auto';
+    document.getElementById('addPartPanel').classList.add('visible');
+    // Reset form
+    document.getElementById('partName').value = '';
+    document.getElementById('partKey').value = 'auto';
+    document.getElementById('partTimeSig').value = '';
+    document.getElementById('partClef').value = 'Treble';
+    document.getElementById('recordingState').classList.remove('visible');
+    document.getElementById('createBtn').disabled = false;
+    selectInputMode('record');
+  }
+
+  function closeAddPartPanel() {
+    switchMode('rehearsal');
+    document.getElementById('addPartPanel').classList.remove('visible');
+    document.getElementById('addPartBtn').style.display = '';
+    document.getElementById('tracksList').style.flex = '';
+    stopRecording(true); // abort any in-progress recording
+  }
+
+  function selectInputMode(mode) {
+    inputMode = mode;
+    document.getElementById('optRecord').classList.toggle('selected', mode === 'record');
+    document.getElementById('optUpload').classList.toggle('selected', mode === 'upload');
+  }
+
+  // ── Create Part ───────────────────────────────────────────────────────
+  function createPart() {
+    if (inputMode === 'upload') {
+      document.getElementById('fileInput').click();
+    } else {
+      beginRecording();
+    }
+  }
+
+  // ── File upload path ──────────────────────────────────────────────────
+  function handleFileChosen(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    const name = document.getElementById('partName').value.trim()
+      || file.name.replace(/\.(mp3|wav|m4a|ogg|flac|webm)$/i, '');
+    transcribeAndAdd(file, name);
+  }
+
+  // ── Live recording ────────────────────────────────────────────────────
+  async function beginRecording() {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      alert('Microphone access denied. Please allow microphone access and try again.');
+      return;
+    }
+
+    recordedChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      clearInterval(countdownInterval);
+      clearTimeout(recordingTimer);
+      document.getElementById('recordingState').classList.remove('visible');
+      document.getElementById('createBtn').disabled = false;
+
+      const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+      const name = document.getElementById('partName').value.trim() || 'Recording';
+      transcribeAndAdd(blob, name);
+    };
+
+    mediaRecorder.start();
+
+    // Show countdown
+    let secs = 30;
+    document.getElementById('recordCountdown').textContent = secs;
+    document.getElementById('recordingState').classList.add('visible');
+    document.getElementById('createBtn').disabled = true;
+
+    countdownInterval = setInterval(() => {
+      secs--;
+      document.getElementById('recordCountdown').textContent = secs;
+      if (secs <= 0) stopRecording();
+    }, 1000);
+
+    recordingTimer = setTimeout(stopRecording, 30000);
+  }
+
+  function stopRecording(abort = false) {
+    clearInterval(countdownInterval);
+    clearTimeout(recordingTimer);
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      if (abort) {
+        mediaRecorder.ondataavailable = null;
+        mediaRecorder.onstop = null;
+      }
+      mediaRecorder.stop();
+    }
+    if (abort) {
+      document.getElementById('recordingState').classList.remove('visible');
+      document.getElementById('createBtn').disabled = false;
+    }
+  }
+
+  // ── Time signature override ───────────────────────────────────────────
+  function overrideTimeSig(xml, timeSig) {
+    const parts = timeSig.split('/');
+    if (parts.length !== 2) return xml;
+    const [beats, beatType] = parts;
+    return xml
+      .replace(/<beats>\d+<\/beats>/g, `<beats>${beats}</beats>`)
+      .replace(/<beat-type>\d+<\/beat-type>/g, `<beat-type>${beatType}</beat-type>`);
+  }
+
+  // ── Transcribe + merge ────────────────────────────────────────────────
+  async function transcribeAndAdd(fileOrBlob, partName) {
+    // Read form values before closing panel
+    const timeSig = document.getElementById('partTimeSig')?.value || '';
+    closeAddPartPanel();
+    setLoading(true, `Transcribing "${partName}"…`);
+
+    const form = new FormData();
+    const fileName = fileOrBlob instanceof File
+      ? fileOrBlob.name
+      : `${partName.replace(/\s+/g, '_')}.webm`;
+    form.append('file', fileOrBlob, fileName);
+    if (timeSig) form.append('time_signature', timeSig);
+
+    try {
+      const res = await fetch(`${API}/transcribe`, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(await res.text());
+      const result = await res.json();
+
+      let xml = result.musicxml;
+
+      // Apply time signature override (belt-and-suspenders: backend also uses it)
+      if (timeSig) xml = overrideTimeSig(xml, timeSig);
+
+      // Apply key override if user specified one
+      const keyVal = document.getElementById('partKey')?.value || 'auto';
+      if (keyVal !== 'auto') xml = overrideKey(xml, keyVal);
+
+      // Apply clef override
+      const clefVal = document.getElementById('partClef')?.value || 'Treble';
+      xml = overrideClef(xml, clefVal);
+
+      parts.push({
+        name: partName,
+        xml,
+        bpm: result.bpm,
+        noteCount: result.note_count,
+        duration: result.duration,
+      });
+
+      if (parts.length === 1) {
+        combinedXML = xml;
+        bpm = Math.round(result.bpm);
+        document.getElementById('bpmInput').value = bpm;
+        document.getElementById('titleInput').value = partName;
+      } else {
+        combinedXML = mergePart(combinedXML, xml, partName, parts.length);
+      }
+
+      await renderScore(combinedXML);
+      renderTracks();
+      document.getElementById('playBtn').disabled = false;
+
+    } catch (err) {
+      alert(`Transcription failed: ${err.message}\n\nMake sure the backend is running at ${API}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Key override ──────────────────────────────────────────────────────
+  const KEY_FIFTHS = {
+    'C':0,'G':1,'D':2,'A':3,'E':4,'B':5,'F#':6,
+    'F':-1,'Bb':-2,'Eb':-3,'Ab':-4,
+    'Am':0,'Em':1,'Bm':2,'F#m':3,'Dm':-1,'Gm':-2,'Cm':-3,
+  };
+
+  function overrideKey(xml, keyVal) {
+    const isMinor = keyVal.endsWith('m');
+    const fifths = KEY_FIFTHS[keyVal] ?? 0;
+    return xml
+      .replace(/<fifths>-?\d+<\/fifths>/g, `<fifths>${fifths}</fifths>`)
+      .replace(/<mode>\w+<\/mode>/g, `<mode>${isMinor ? 'minor' : 'major'}</mode>`);
+  }
+
+  // ── Clef override ─────────────────────────────────────────────────────
+  const CLEF_MAP = {
+    'Treble': { sign: 'G', line: '2' },
+    'Bass':   { sign: 'F', line: '4' },
+    'Alto':   { sign: 'C', line: '3' },
+    'Tenor':  { sign: 'C', line: '4' },
+  };
+
+  function overrideClef(xml, clefName) {
+    const clef = CLEF_MAP[clefName];
+    if (!clef) return xml;
+    return xml.replace(/<clef[^>]*>[\s\S]*?<\/clef>/g, match =>
+      match
+        .replace(/<sign>[A-Za-z]+<\/sign>/, `<sign>${clef.sign}</sign>`)
+        .replace(/<line>\d<\/line>/, `<line>${clef.line}</line>`)
+    );
+  }
+
+  // ── Merge parts ───────────────────────────────────────────────────────
+  function mergePart(baseXML, newXML, partName, partNumber) {
+    const parser = new DOMParser();
+    const baseDoc = parser.parseFromString(baseXML, 'text/xml');
+    const newDoc  = parser.parseFromString(newXML, 'text/xml');
+    const newId   = `P${partNumber}`;
+
+    const newScorePart = newDoc.querySelector('score-part').cloneNode(true);
+    const newPart      = newDoc.querySelector('part').cloneNode(true);
+    newScorePart.setAttribute('id', newId);
+    newPart.setAttribute('id', newId);
+    const nameEl = newScorePart.querySelector('part-name');
+    if (nameEl) nameEl.textContent = partName;
+
+    baseDoc.querySelector('part-list').appendChild(baseDoc.importNode(newScorePart, true));
+    baseDoc.querySelector('score-partwise').appendChild(baseDoc.importNode(newPart, true));
+    return new XMLSerializer().serializeToString(baseDoc);
+  }
+
+  // ── Key display ───────────────────────────────────────────────────────
+  function getKeyFromXML(xml) {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    const fifths = parseInt(doc.querySelector('fifths')?.textContent || '0');
+    const mode = doc.querySelector('mode')?.textContent || 'major';
+    const names = { 0:'C',1:'G',2:'D',3:'A',4:'E',5:'B',6:'F#','-1':'F','-2':'B♭','-3':'E♭','-4':'A♭','-5':'D♭','-6':'G♭' };
+    const tonic = names[fifths] || 'C';
+    return `${tonic} ${mode === 'minor' ? 'Minor' : 'Major'}`;
+  }
+
+  // ── OSMD ──────────────────────────────────────────────────────────────
+  async function renderScore(xml) {
+    document.getElementById('uploadPrompt').style.display = 'none';
+    document.getElementById('keyDisplay').textContent = getKeyFromXML(xml);
+    if (!osmd) {
+      osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('osmd-container', {
+        autoResize: true,
+        drawTitle: false,
+        drawSubtitle: false,
+        drawComposer: false,
+        backend: 'svg',
+      });
+    }
+    await osmd.load(xml);
+    osmd.render();
+    // Style cursor but keep hidden until playback
+    requestAnimationFrame(() => styleOSMDCursor());
+  }
+
+  // ── Tracks panel ──────────────────────────────────────────────────────
+  function renderTracks() {
+    const list = document.getElementById('tracksList');
+    list.innerHTML = '';
+    parts.forEach((part, i) => {
+      const el = document.createElement('div');
+      el.className = 'track-item' + (i === parts.length - 1 ? ' active' : '');
+      el.innerHTML = `
+        <div class="track-icon">🎙️</div>
+        <div class="track-info">
+          <div class="track-name">${part.name}</div>
+          <div class="track-meta">Recorded · ${fmtDur(part.duration)} · ${part.noteCount} notes</div>
+        </div>
+        <div class="track-btns">
+          <button class="track-btn" id="mute-${i}" title="Mute" onclick="toggleMute(event,${i})">🔇</button>
+          <button class="track-btn" title="Solo" onclick="event.stopPropagation()">🎧</button>
+        </div>`;
+      el.addEventListener('click', () => {
+        list.querySelectorAll('.track-item').forEach(t => t.classList.remove('active'));
+        el.classList.add('active');
+      });
+      list.appendChild(el);
+    });
+  }
+
+  function fmtDur(sec) {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  }
+
+  function toggleMute(e, i) {
+    e.stopPropagation();
+    const btn = document.getElementById(`mute-${i}`);
+    mutedParts.has(i) ? (mutedParts.delete(i), btn.classList.remove('on')) : (mutedParts.add(i), btn.classList.add('on'));
+  }
+
+  // ── Loading ───────────────────────────────────────────────────────────
+  function setLoading(on, title = 'Transcribing audio…') {
+    document.getElementById('loadingTitle').textContent = title;
+    document.getElementById('loadingOverlay').classList.toggle('visible', on);
+  }
+
+  // ── BPM / Metronome ───────────────────────────────────────────────────
+  function updateBPM(val) {
+    bpm = Math.max(30, Math.min(300, parseInt(val) || 120));
+    document.getElementById('bpmInput').value = bpm;
+    Tone.getTransport().bpm.value = bpm * speedMultiplier;
+  }
+
+  function updateSpeed(val) {
+    speedMultiplier = parseFloat(val);
+    Tone.getTransport().bpm.value = bpm * speedMultiplier;
+  }
+
+  function toggleMetronomeBtn() {
+    isMetronomeOn = !isMetronomeOn;
+    const pill = document.getElementById('metronomePill');
+    pill.textContent = isMetronomeOn ? 'ON' : 'OFF';
+    pill.classList.toggle('on', isMetronomeOn);
+    toggleMetronome(isMetronomeOn);
+  }
+
+  function toggleMetronome(on) {
+    if (on) {
+      Tone.start();
+      Tone.getTransport().bpm.value = bpm * speedMultiplier;
+      metronomeSynth = new Tone.Synth({
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05 },
+        volume: -6,
+      }).toDestination();
+      metronomeLoop = new Tone.Loop(t => metronomeSynth.triggerAttackRelease('C5', '32n', t), '4n').start(0);
+      if (!isPlaying) Tone.getTransport().start();
+    } else {
+      metronomeLoop?.stop().dispose(); metronomeLoop = null;
+      metronomeSynth?.dispose(); metronomeSynth = null;
+      if (!isPlaying) Tone.getTransport().stop();
+    }
+  }
+
+  // ── OSMD cursor playhead ──────────────────────────────────────────────
+  let cursorSchedule = [];
+  let cursorIdx = 0;
+
+  function styleOSMDCursor() {
+    if (!osmd?.cursor?.cursorElement) return;
+    const el = osmd.cursor.cursorElement;
+    el.style.backgroundColor = 'rgba(245, 137, 58, 0.15)';
+    el.style.borderLeft = '3px solid #F5893A';
+    el.style.zIndex = '5';
+    // If OSMD uses an <img> cursor, hide the image and show as a colored bar
+    if (el.tagName === 'IMG') {
+      el.style.opacity = '0.4';
+      el.style.filter = 'sepia(1) saturate(10) hue-rotate(-20deg)';
+    }
+  }
+
+  function buildCursorSchedule() {
+    // Build from ALL note positions in the MusicXML — including tie-stop segments —
+    // because OSMD's internal cursor has one position per note element regardless of ties.
+    const doc = new DOMParser().parseFromString(combinedXML, 'text/xml');
+    const beats = new Set();
+    doc.querySelectorAll('part').forEach((part, pi) => {
+      if (mutedParts.has(pi)) return;
+      let divisions = 1, beat = 0, lastDur = 0;
+      part.querySelectorAll('measure').forEach(m => {
+        const d = m.querySelector('divisions');
+        if (d) divisions = parseInt(d.textContent);
+        m.querySelectorAll('note').forEach(n => {
+          const isChord = !!n.querySelector('chord');
+          const dur = parseInt(n.querySelector('duration')?.textContent || divisions);
+          if (isChord) beat -= lastDur;
+          if (!n.querySelector('rest')) beats.add(parseFloat(beat.toFixed(4)));
+          lastDur = dur / divisions;
+          if (!isChord) beat += dur / divisions;
+        });
+      });
+    });
+    cursorSchedule = [...beats].sort((a, b) => a - b);
+  }
+
+  function startCursor(beatSec) {
+    if (!osmd?.cursor) return;
+    buildCursorSchedule();
+    osmd.cursor.reset();
+    osmd.cursor.show();
+    styleOSMDCursor();
+    cursorIdx = 0;
+
+    function frame() {
+      const currentBeat = Tone.getTransport().seconds / beatSec;
+      while (cursorIdx < cursorSchedule.length - 1 && cursorSchedule[cursorIdx + 1] <= currentBeat + 0.04) {
+        osmd.cursor.next();
+        cursorIdx++;
+      }
+      if (isPlaying) playheadRAF = requestAnimationFrame(frame);
+    }
+    playheadRAF = requestAnimationFrame(frame);
+  }
+
+  function stopCursor() {
+    cancelAnimationFrame(playheadRAF);
+    if (osmd?.cursor) {
+      osmd.cursor.reset();
+      osmd.cursor.hide();
+    }
+  }
+
+  // ── Playback ──────────────────────────────────────────────────────────
+  function parseNotes(xml) {
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+    const notes = [];
+    doc.querySelectorAll('part').forEach((part, pi) => {
+      if (mutedParts.has(pi)) return;
+      let divisions = 1, beat = 0, lastDur = 0;
+      part.querySelectorAll('measure').forEach(m => {
+        const d = m.querySelector('divisions');
+        if (d) divisions = parseInt(d.textContent);
+        m.querySelectorAll('note').forEach(n => {
+          const isRest  = !!n.querySelector('rest');
+          const isChord = !!n.querySelector('chord');
+          const dur = parseInt(n.querySelector('duration')?.textContent || divisions);
+          if (isChord) beat -= lastDur;
+
+          if (!isRest) {
+            const step   = n.querySelector('step')?.textContent;
+            const octave = n.querySelector('octave')?.textContent;
+            const alter  = parseInt(n.querySelector('alter')?.textContent || 0);
+
+            // Detect whether this note is a tie-stop (continuation of a previous note).
+            // makeNotation splits notes at barlines and marks them with <tie type="stop"/>.
+            // A tie-stop should NOT produce a new audio attack — instead, extend the
+            // previous note's duration so it sounds like one continuous note.
+            const tieTypes = [...n.querySelectorAll('tie')].map(t => t.getAttribute('type'));
+            const isTieStop  = tieTypes.includes('stop') && !tieTypes.includes('start');
+
+            if (step && octave) {
+              const acc = alter === 1 ? '#' : alter === -1 ? 'b' : '';
+              const noteName = `${step}${acc}${octave}`;
+              const durBeats = dur / divisions;
+
+              if (isTieStop && notes.length > 0 && notes[notes.length - 1].n === noteName) {
+                // Extend the previous note instead of adding a new one
+                notes[notes.length - 1].d += durBeats;
+              } else if (!isTieStop) {
+                notes.push({ t: beat, n: noteName, d: Math.max(0.05, durBeats - 0.05) });
+              }
+            }
+          }
+          lastDur = dur / divisions;
+          if (!isChord) beat += dur / divisions;
+        });
+      });
+    });
+    return notes;
+  }
+
+  async function togglePlayback() {
+    if (!combinedXML) return;
+    await Tone.start();
+    if (isPlaying) {
+      Tone.getTransport().pause();
+      document.getElementById('playBtn').textContent = '▶';
+      isPlaying = false;
+      stopCursor();
+      return;
+    }
+    Tone.getTransport().stop();
+    Tone.getTransport().cancel();
+    Tone.getTransport().bpm.value = bpm * speedMultiplier;
+    playbackSynth?.dispose();
+    playbackSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.02, decay: 0.1, sustain: 0.5, release: 0.6 },
+      volume: -10,
+    }).toDestination();
+    const notes = parseNotes(combinedXML);
+    const beatSec = 60 / (bpm * speedMultiplier);
+    totalDurationSec = notes.length ? Math.max(...notes.map(n => n.t + n.d)) * beatSec : 4;
+    notes.forEach(({ t, n, d }) => {
+      Tone.getTransport().schedule(time => {
+        try { playbackSynth.triggerAttackRelease(n, d * beatSec, time); } catch (_) {}
+      }, t * beatSec);
+    });
+    if (isMetronomeOn) metronomeLoop?.start(0);
+    Tone.getTransport().schedule(() => {
+      isPlaying = false;
+      document.getElementById('playBtn').textContent = '▶';
+      playbackSynth?.dispose();
+      stopCursor();
+      if (!isMetronomeOn) Tone.getTransport().stop();
+    }, totalDurationSec + 0.5);
+    Tone.getTransport().start();
+    document.getElementById('playBtn').textContent = '⏸';
+    isPlaying = true;
+    startCursor(beatSec);
+  }
+
+  // ── Export modal ──────────────────────────────────────────────────────
+  let selectedExportFormat = 'pdf';
+  let selectedPartIdx = -1; // -1 = all parts
+
+  function openExportModal() {
+    if (!combinedXML) { alert('No score loaded.'); return; }
+    populatePartsDropdown();
+    document.getElementById('exportModal').classList.add('open');
+  }
+
+  function closeExportModal() {
+    document.getElementById('exportModal').classList.remove('open');
+    document.getElementById('partsDropdown').classList.remove('open');
+    document.getElementById('partsSelectBtn').classList.remove('open');
+  }
+
+  function selectExportFormat(fmt) {
+    selectedExportFormat = fmt;
+    document.querySelectorAll('.format-card').forEach(c => c.classList.toggle('selected', c.dataset.fmt === fmt));
+  }
+
+  function populatePartsDropdown() {
+    const dd = document.getElementById('partsDropdown');
+    dd.innerHTML = '';
+    const allOption = makeOption('All Parts', -1, selectedPartIdx === -1);
+    dd.appendChild(allOption);
+    parts.forEach((p, i) => dd.appendChild(makeOption(p.name, i, selectedPartIdx === i)));
+  }
+
+  function makeOption(label, idx, selected) {
+    const el = document.createElement('div');
+    el.className = 'custom-select-option' + (selected ? ' selected' : '');
+    el.textContent = label;
+    el.onclick = () => {
+      selectedPartIdx = idx;
+      document.getElementById('partsSelectLabel').textContent = label;
+      document.querySelectorAll('#partsDropdown .custom-select-option').forEach(o => {
+        o.classList.toggle('selected', o === el);
+      });
+      document.getElementById('partsDropdown').classList.remove('open');
+      document.getElementById('partsSelectBtn').classList.remove('open');
+    };
+    return el;
+  }
+
+  function togglePartsDropdown() {
+    document.getElementById('partsDropdown').classList.toggle('open');
+    document.getElementById('partsSelectBtn').classList.toggle('open');
+  }
+
+  async function downloadExport() {
+    const xml = selectedPartIdx >= 0 && parts[selectedPartIdx]
+      ? parts[selectedPartIdx].xml
+      : combinedXML;
+    const fmt = selectedExportFormat;
+    const base = selectedPartIdx >= 0 ? parts[selectedPartIdx].name : 'score';
+
+    if (fmt === 'musicxml') {
+      dl(new Blob([xml], { type: 'application/xml' }), `${base}.musicxml`);
+      closeExportModal();
+      return;
+    }
+
+    if (fmt === 'audio') {
+      alert('Audio export coming soon.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/export/${fmt}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ musicxml: xml }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const ext = fmt === 'midi' ? 'mid' : 'pdf';
+      dl(await res.blob(), `${base}.${ext}`);
+      closeExportModal();
+    } catch (err) {
+      alert(`Export failed: ${err.message}`);
+    }
+  }
+
+  function dl(blob, name) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+    a.click(); URL.revokeObjectURL(a.href);
+  }
+
+  // ── Mode / sidebar ────────────────────────────────────────────────────
+  function switchMode(mode) {
+    document.getElementById('editBtn').classList.toggle('active', mode === 'edit');
+    document.getElementById('rehearsalBtn').classList.toggle('active', mode === 'rehearsal');
+    // Show the right toolbar
+    document.getElementById('rehearsalToolbar').style.display = mode === 'rehearsal' ? 'flex' : 'none';
+    document.getElementById('editToolbar').classList.toggle('visible', mode === 'edit');
+    // Sync transpose button label when entering edit mode
+    if (mode === 'edit' && combinedXML) {
+      document.getElementById('transposeBtnLabel').textContent = getKeyFromXML(combinedXML);
+      currentKey = getKeyFromXML(combinedXML).split(' ')[0];
+    }
+  }
+
+  // ── Edit toolbar dropdowns ────────────────────────────────────────────
+  function toggleEditDropdown(menuId, btn) {
+    const menu = document.getElementById(menuId);
+    const isOpen = menu.classList.contains('open');
+    // Close all edit dropdowns first
+    document.querySelectorAll('.edit-dropdown-menu').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.edit-dropdown-btn').forEach(b => b.classList.remove('open'));
+    if (!isOpen) { menu.classList.add('open'); btn.classList.add('open'); }
+  }
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.edit-dropdown')) {
+      document.querySelectorAll('.edit-dropdown-menu').forEach(m => m.classList.remove('open'));
+      document.querySelectorAll('.edit-dropdown-btn').forEach(b => b.classList.remove('open'));
+    }
+  });
+
+  // ── Transpose ─────────────────────────────────────────────────────────
+  let currentKey = 'C';
+
+  const KEY_SEMITONE = {
+    'C':0,'G':7,'D':2,'A':9,'E':4,'B':11,'F#':6,
+    'F':5,'Bb':10,'Eb':3,'Ab':8,'Db':1,'Gb':6,
+    'Am':9,'Em':4,'Bm':11,'F#m':6,'Dm':2,'Gm':7,'Cm':0,
+  };
+  const FLAT_KEY_SET = new Set(['F','Bb','Eb','Ab','Db','Gb','Dm','Gm','Cm']);
+  const STEP_TO_SEMI = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 };
+  const SHARP_NAMES  = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const FLAT_NAMES   = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+
+  const KEY_DISPLAY = {
+    'C':'C Major','G':'G Major','D':'D Major','A':'A Major','E':'E Major',
+    'B':'B Major','F#':'F♯ Major','F':'F Major','Bb':'B♭ Major','Eb':'E♭ Major','Ab':'A♭ Major',
+    'Am':'A Minor','Em':'E Minor','Bm':'B Minor','F#m':'F♯ Minor',
+    'Dm':'D Minor','Gm':'G Minor','Cm':'C Minor',
+  };
+
+  function applyTranspose(toKey) {
+    document.getElementById('transposeMenu').classList.remove('open');
+    document.getElementById('transposeBtn').classList.remove('open');
+    if (!combinedXML) return;
+
+    const fromSemi = KEY_SEMITONE[currentKey] ?? 0;
+    const toSemi   = KEY_SEMITONE[toKey]      ?? 0;
+    let interval = toSemi - fromSemi;
+    if (interval > 6)  interval -= 12;
+    if (interval < -6) interval += 12;
+    if (interval === 0) return;
+
+    const useFlats = FLAT_KEY_SET.has(toKey);
+    const names    = useFlats ? FLAT_NAMES : SHARP_NAMES;
+
+    // Transpose all <pitch> blocks using regex (avoids XMLSerializer namespace issues)
+    combinedXML = combinedXML.replace(/<pitch>([\s\S]*?)<\/pitch>/g, (_, inner) => {
+      const step  = (inner.match(/<step>([A-G])<\/step>/)   || [])[1];
+      const alter = parseInt((inner.match(/<alter>(-?\d+)<\/alter>/) || ['','0'])[1]);
+      const oct   = parseInt((inner.match(/<octave>(\d+)<\/octave>/) || [])[1]);
+      if (!step || isNaN(oct)) return `<pitch>${inner}</pitch>`;
+
+      const midi    = (oct + 1) * 12 + STEP_TO_SEMI[step] + alter;
+      const newMidi = midi + interval;
+      const newOct  = Math.floor(newMidi / 12) - 1;
+      const pc      = ((newMidi % 12) + 12) % 12;
+      const name    = names[pc];
+      const newStep = name[0];
+      const newAlter = name.includes('#') ? 1 : name.includes('b') ? -1 : 0;
+
+      let pitch = `<step>${newStep}</step>`;
+      if (newAlter !== 0) pitch += `<alter>${newAlter}</alter>`;
+      pitch += `<octave>${newOct}</octave>`;
+      return `<pitch>${pitch}</pitch>`;
+    });
+
+    // Update key signature using the existing regex helper
+    combinedXML = overrideKey(combinedXML, toKey);
+
+    currentKey = toKey;
+    const label = KEY_DISPLAY[toKey] || toKey;
+    document.getElementById('transposeBtnLabel').textContent = label;
+    document.getElementById('keyDisplay').textContent = label;
+
+    // Highlight the active item
+    document.querySelectorAll('#transposeMenu .edit-dropdown-item').forEach(el => {
+      el.classList.toggle('active', el.textContent.trim().startsWith(label.replace('♯','#').replace('♭','b')));
+    });
+
+    renderScore(combinedXML);
+    showToast(`Transposed to ${label}`);
+  }
+
+  // ── Markings ──────────────────────────────────────────────────────────
+  function applyMarking(marking) {
+    document.getElementById('markingsMenu').classList.remove('open');
+    if (!combinedXML) return;
+
+    let xml = combinedXML;
+    let label = marking;
+
+    if (marking.startsWith('text:')) {
+      // Tempo text marking — insert as <words> direction in measure 1
+      const text = marking.slice(5);
+      label = text;
+      const dir = `<direction placement="above"><direction-type><words font-weight="bold">${text}</words></direction-type></direction>\n    `;
+      xml = xml.replace(/(<measure [^>]*number="1"[^>]*>)/, `$1\n    ${dir}`);
+    } else if (marking.startsWith('rehearsal:')) {
+      // Rehearsal mark — insert boxed rehearsal letter/text
+      const mark = marking.slice(10);
+      label = mark;
+      const dir = `<direction placement="above"><direction-type><rehearsal enclosure="box">${mark}</rehearsal></direction-type></direction>\n    `;
+      xml = xml.replace(/(<measure [^>]*number="1"[^>]*>)/, `$1\n    ${dir}`);
+    } else {
+      // Dynamic marking — insert <dynamics> direction
+      const dir = `<direction placement="below"><direction-type><dynamics><${marking}/></dynamics></direction-type></direction>\n    `;
+      xml = xml.replace(/(<measure [^>]*number="1"[^>]*>)/, `$1\n    ${dir}`);
+    }
+
+    combinedXML = xml;
+    renderScore(combinedXML);
+    showToast(`Added: ${label}`);
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  function toggleSidebar() {
+    const s = document.getElementById('sidebar');
+    s.classList.toggle('collapsed');
+    document.getElementById('collapseBtn').textContent = s.classList.contains('collapsed') ? '▸' : '▾';
+  }
+
+  document.getElementById('titleInput').addEventListener('input', () => {
+    document.getElementById('savedStatus').textContent = 'Unsaved';
+    clearTimeout(window._t);
+    window._t = setTimeout(() => { document.getElementById('savedStatus').textContent = 'Saved'; }, 1000);
+  });
+</script>
+</body>
+</html>
