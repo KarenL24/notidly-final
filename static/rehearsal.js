@@ -243,6 +243,63 @@ function mergePart(baseXML, newXML, partName, partNumber) {
   return new XMLSerializer().serializeToString(baseDoc);
 }
 
+// ── Time signature helpers ───────────────────────────────────────────────────
+function getTimeSigFromXML(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
+  const beats = doc.querySelector('beats')?.textContent || '4';
+  const beatType = doc.querySelector('beat-type')?.textContent || '4';
+  return `${beats}/${beatType}`;
+}
+
+function updateTimeSigDisplay(timeSig) {
+  const display = document.getElementById('timeSigDisplay');
+  const btnLabel = document.getElementById('timeSigBtnLabel');
+  if (display) display.textContent = timeSig;
+  if (btnLabel) btnLabel.textContent = timeSig;
+  document.querySelectorAll('#timeSigMenu .edit-dropdown-item').forEach(el => {
+    el.classList.toggle('active', el.textContent.trim() === timeSig);
+  });
+}
+
+async function applyTimeSig(timeSig) {
+  document.getElementById('timeSigMenu').classList.remove('open');
+  document.getElementById('timeSigBtn').classList.remove('open');
+  if (!combinedXML) return;
+
+  setLoading(true, `Applying ${timeSig}…`);
+  try {
+    const parseRes = await fetch(`${API}/parse-score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ musicxml: combinedXML }),
+    });
+    if (!parseRes.ok) throw new Error(await parseRes.text());
+    const { score_notes } = await parseRes.json();
+
+    const rebuildRes = await fetch(`${API}/rebuild-score`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        score_notes,
+        bpm,
+        time_signature: timeSig,
+        key_signature: getKeyFromXML(combinedXML),
+      }),
+    });
+    if (!rebuildRes.ok) throw new Error(await rebuildRes.text());
+    const result = await rebuildRes.json();
+
+    combinedXML = result.musicxml;
+    await renderScore(combinedXML);
+    updateTimeSigDisplay(timeSig);
+    showToast(`Time signature: ${timeSig}`);
+  } catch (err) {
+    alert(`Failed to apply time signature: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
+}
+
 // ── Key display ─────────────────────────────────────────────────────────────
 function getKeyFromXML(xml) {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
@@ -257,6 +314,7 @@ function getKeyFromXML(xml) {
 async function renderScore(xml) {
   document.getElementById('uploadPrompt').style.display = 'none';
   document.getElementById('keyDisplay').textContent = getKeyFromXML(xml);
+  updateTimeSigDisplay(getTimeSigFromXML(xml));
   if (!osmd) {
     osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay('osmd-container', {
       autoResize: true,

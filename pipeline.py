@@ -226,50 +226,83 @@ def detect_key(notes):
 # ── Rhythm quantization ───────────────────────────────────────────────────────
 
 def quantize_notes(notes, bpm):
-    """
-    Snap note start/end times to a 16th-note grid, derive durations from those
-    snapped positions, and insert rests for any resulting gaps.
-    """
+
     if not notes:
         return []
 
     beat_sec = 60.0 / bpm
-    GRID = 0.25
-    MIN_REST = GRID / 2
+
+    GRID = 0.5
+
+    # For vocals, don't create rests shorter than half a beat.
+    MIN_REST_BEATS = 0.5
 
     def snap(beats):
         return round(round(beats / GRID) * GRID, 6)
 
     events = []
+
+    prev_note_idx = None
     prev_end = None
 
     for start_s, end_s, midi_pitch in notes:
+
         q_start = snap(start_s / beat_sec)
-        q_end   = snap(end_s   / beat_sec)
+        q_end = snap(end_s / beat_sec)
 
         if q_end <= q_start:
             q_end = q_start + GRID
 
-        if prev_end is not None and q_start < prev_end:
-            q_start = prev_end
-            if q_end <= q_start:
-                q_end = q_start + GRID
-
         if prev_end is not None:
-            gap = round(q_start - prev_end, 6)
-            if gap >= MIN_REST:
-                rest_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - gap))
-                events.append(('rest', None, rest_dur))
 
-        raw_dur  = round(q_end - q_start, 6)
-        best_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - raw_dur))
-        best_dur = max(best_dur, GRID)
+            gap = q_start - prev_end
 
-        events.append(('note', round(midi_pitch), best_dur))
-        prev_end = round(q_start + best_dur, 6)
+            # SMALL GAP:
+            # extend previous note instead of creating a rest
+            if 0 < gap < MIN_REST_BEATS:
+
+                if prev_note_idx is not None:
+
+                    evt_type, p, dur = events[prev_note_idx]
+
+                    events[prev_note_idx] = (
+                        evt_type,
+                        p,
+                        dur + gap
+                    )
+
+                q_start = prev_end
+
+            # LARGE GAP:
+            # keep actual rest
+            elif gap >= MIN_REST_BEATS:
+
+                rest_dur = round(gap / GRID) * GRID
+
+                if rest_dur >= GRID:
+
+                    events.append(
+                        ('rest', None, rest_dur)
+                    )
+
+        duration = q_end - q_start
+
+        duration = max(duration, GRID)
+
+        duration = round(duration / GRID) * GRID
+
+        events.append(
+            (
+                'note',
+                round(midi_pitch),
+                duration
+            )
+        )
+
+        prev_note_idx = len(events) - 1
+        prev_end = q_start + duration
 
     return events
-
 
 # ── Notation quality ──────────────────────────────────────────────────────────
 
