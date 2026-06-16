@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py pipeline.py score.py rehearsal.html editor.html ./
+COPY static/ ./static/
 
 ENV PORT=7860
 EXPOSE 7860

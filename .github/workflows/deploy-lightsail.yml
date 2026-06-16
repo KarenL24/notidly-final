@@ -1,0 +1,65 @@
+name: Deploy to AWS Lightsail
+
+on:
+  push:
+    branches: [frontend, main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install Lightsail container plugin
+        run: |
+          curl -sL "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" \
+            -o /usr/local/bin/lightsailctl
+          chmod +x /usr/local/bin/lightsailctl
+
+      - name: Build Docker image
+        run: docker build -t notidly:latest .
+
+      - name: Push image to Lightsail registry
+        run: |
+          aws lightsail push-container-image \
+            --region ${{ secrets.AWS_REGION }} \
+            --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
+            --label app \
+            --image notidly:latest
+
+      - name: Get pushed image name
+        id: image
+        run: |
+          IMAGE=$(aws lightsail get-container-images \
+            --region ${{ secrets.AWS_REGION }} \
+            --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
+            --query 'containerImages[0].image' \
+            --output text)
+          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Lightsail
+        run: |
+          aws lightsail create-container-service-deployment \
+            --region ${{ secrets.AWS_REGION }} \
+            --service-name ${{ secrets.LIGHTSAIL_SERVICE_NAME }} \
+            --containers "{
+              \"app\": {
+                \"image\": \"${{ steps.image.outputs.name }}\",
+                \"environment\": {\"PORT\": \"7860\"},
+                \"ports\": {\"7860\": \"HTTP\"}
+              }
+            }" \
+            --public-endpoint "{
+              \"containerName\": \"app\",
+              \"containerPort\": 7860,
+              \"healthCheck\": {\"path\": \"/health\", \"intervalSeconds\": 30}
+            }"

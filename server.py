@@ -4,6 +4,7 @@ FastAPI server for the transcription pipeline.
 
 import asyncio
 import base64
+import json
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -12,13 +13,17 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Optional
 
-from pipeline import transcribe_file
+from pipeline import (
+    transcribe_file,
+    run_pipeline,
+)
 from score import (
+    build_score,
     clean_musicxml,
     export_score_pdf,
     rebuild_from_editor_notes,
@@ -206,6 +211,97 @@ async def transcribe_audio(
     processing_time = (datetime.now() - start).total_seconds()
 
     return TranscriptionResponse(processing_time=processing_time, **result)
+
+
+@app.post("/transcribe-stream")
+async def transcribe_audio_stream(
+    file: UploadFile = File(...),
+    time_signature: Optional[str] = Form(None),
+):
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXTENSIONS and file.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unsupported format.")
+    if time_signature and time_signature not in VALID_TIME_SIGNATURES:
+        raise HTTPException(status_code=400, detail=f"Invalid time signature: {time_signature}")
+
+    suffix = ext if ext else ".mp3"
+    content = await file.read()
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp.write(content)
+    tmp.close()
+    tmp_path = tmp.name
+
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def emit(event: dict):
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    def worker():
+        try:
+            def on_stage(message):
+                emit({"stage": message})
+
+            def on_preview(quantized, bpm, detected_key, ts):
+                # Stream preview: real notes from the audio, no lyrics yet
+                emit({"stage": "Building preview…"})
+                preview_score = build_score(quantized, bpm, detected_key, ts)
+                with tempfile.TemporaryDirectory() as d:
+                    xp = os.path.join(d, "preview.musicxml")
+                    preview_score.write("musicxml", fp=xp)
+                    with open(xp, "r", encoding="utf-8") as f:
+                        preview_xml = clean_musicxml(f.read())
+
+                emit({
+                    "type": "preview",
+                    "musicxml": preview_xml,
+                    "bpm": float(bpm),
+                    "time_signature": ts,
+                    "key_signature": detected_key.name,
+                })
+
+            score, meta = run_pipeline(
+                tmp_path,
+                time_signature=time_signature or None,
+                on_stage=on_stage,
+                on_preview=on_preview,
+            )
+
+            with tempfile.TemporaryDirectory() as d:
+                xp = os.path.join(d, "out.musicxml")
+                score.write("musicxml", fp=xp)
+                with open(xp, "r", encoding="utf-8") as f:
+                    final_xml = clean_musicxml(f.read())
+
+            emit({
+                "type": "complete",
+                "musicxml": final_xml,
+                **meta,
+            })
+        except Exception as exc:
+            emit({"type": "error", "message": str(exc)})
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    async def generate():
+        future = loop.run_in_executor(executor, worker)
+        try:
+            while True:
+                event = await asyncio.wait_for(queue.get(), timeout=180)
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event)}\n\n"
+        except asyncio.TimeoutError:
+            yield f"data: {json.dumps({'type': 'error', 'message': 'Transcription timed out'})}\n\n"
+        await future
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/export/musicxml")

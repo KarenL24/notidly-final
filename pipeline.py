@@ -117,6 +117,35 @@ def remove_fry(freq, confidence):
     return cleaned
 
 
+def fill_short_pitch_gaps(freq, max_gap_frames=15):
+    freq = freq.copy()
+
+    i = 0
+    while i < len(freq):
+        if freq[i] > 0:
+            i += 1
+            continue
+
+        start = i
+
+        while i < len(freq) and freq[i] == 0:
+            i += 1
+
+        end = i
+
+        gap_len = end - start
+
+        if (
+            gap_len <= max_gap_frames
+            and start > 0
+            and end < len(freq)
+            and freq[start - 1] > 0
+            and freq[end] > 0
+        ):
+            freq[start:end] = (freq[start - 1] + freq[end]) / 2
+
+    return freq
+
 # ── Note segmentation ─────────────────────────────────────────────────────────
 
 def segment_notes(times, freq):
@@ -226,50 +255,83 @@ def detect_key(notes):
 # ── Rhythm quantization ───────────────────────────────────────────────────────
 
 def quantize_notes(notes, bpm):
-    """
-    Snap note start/end times to a 16th-note grid, derive durations from those
-    snapped positions, and insert rests for any resulting gaps.
-    """
+
     if not notes:
         return []
 
     beat_sec = 60.0 / bpm
-    GRID = 0.25
-    MIN_REST = GRID / 2
+
+    GRID = 0.5
+
+    # For vocals, don't create rests shorter than half a beat.
+    MIN_REST_BEATS = 0.5
 
     def snap(beats):
         return round(round(beats / GRID) * GRID, 6)
 
     events = []
+
+    prev_note_idx = None
     prev_end = None
 
     for start_s, end_s, midi_pitch in notes:
+
         q_start = snap(start_s / beat_sec)
-        q_end   = snap(end_s   / beat_sec)
+        q_end = snap(end_s / beat_sec)
 
         if q_end <= q_start:
             q_end = q_start + GRID
 
-        if prev_end is not None and q_start < prev_end:
-            q_start = prev_end
-            if q_end <= q_start:
-                q_end = q_start + GRID
-
         if prev_end is not None:
-            gap = round(q_start - prev_end, 6)
-            if gap >= MIN_REST:
-                rest_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - gap))
-                events.append(('rest', None, rest_dur))
 
-        raw_dur  = round(q_end - q_start, 6)
-        best_dur = min(CONVENTIONAL_DURATIONS, key=lambda d: abs(d - raw_dur))
-        best_dur = max(best_dur, GRID)
+            gap = q_start - prev_end
 
-        events.append(('note', round(midi_pitch), best_dur))
-        prev_end = round(q_start + best_dur, 6)
+            # SMALL GAP:
+            # extend previous note instead of creating a rest
+            if 0 < gap < MIN_REST_BEATS:
+
+                if prev_note_idx is not None:
+
+                    evt_type, p, dur = events[prev_note_idx]
+
+                    events[prev_note_idx] = (
+                        evt_type,
+                        p,
+                        dur + gap
+                    )
+
+                q_start = prev_end
+
+            # LARGE GAP:
+            # keep actual rest
+            elif gap >= MIN_REST_BEATS:
+
+                rest_dur = round(gap / GRID) * GRID
+
+                if rest_dur >= GRID:
+
+                    events.append(
+                        ('rest', None, rest_dur)
+                    )
+
+        duration = q_end - q_start
+
+        duration = max(duration, GRID)
+
+        duration = round(duration / GRID) * GRID
+
+        events.append(
+            (
+                'note',
+                round(midi_pitch),
+                duration
+            )
+        )
+
+        prev_note_idx = len(events) - 1
+        prev_end = q_start + duration
 
     return events
-
 
 # ── Notation quality ──────────────────────────────────────────────────────────
 
@@ -305,25 +367,50 @@ def merge_same_pitch_notes(events):
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
-def run_pipeline(input_file: str, time_signature: str = None):
-    """Run transcription and return (score, metadata dict)."""
+def run_pipeline(input_file: str, time_signature: str = None, on_stage=None, on_preview=None):
+    """
+    Run transcription and return (score, metadata dict).
+
+    on_stage(message): called before each major step, for progress reporting.
+    on_preview(quantized, bpm, detected_key, time_sig): called right after
+        note segmentation/quantization, before the (slower) lyric detection
+        step, so callers can stream an early preview of the real notes.
+    """
+    def stage(message):
+        if on_stage:
+            on_stage(message)
+
+    stage("Loading audio…")
     audio = load_audio(input_file)
+
+    stage("Detecting tempo…")
     bpm = detect_tempo(audio)
     time_sig = time_signature if time_signature else detect_time_signature(audio, bpm)
 
+    stage("Extracting pitch… (this takes a while)")
     times, freq, conf = extract_pitch(audio)
+
+    stage("Segmenting notes…")
     freq = remove_fry(freq, conf)
     freq = smooth_pitch(freq)
+    freq = fill_short_pitch_gaps(freq)
     segments = segment_notes(times, freq)
+    print(segments[:20])
 
     detected_key = detect_key(segments)
     quantized = quantize_notes(segments, bpm)
+
+    if on_preview:
+        on_preview(quantized, bpm, detected_key, time_sig)
+
+    stage("Detecting lyrics…")
     words = detect_lyrics(input_file)
     lyrics = align_lyrics(words, segments)
 
-    if not words:
-        quantized = merge_same_pitch_notes(quantized)
+    #if not words:
+     #   quantized = merge_same_pitch_notes(quantized)
 
+    stage("Finalizing score…")
     score = build_score(quantized, bpm, detected_key, time_sig, lyrics=lyrics)
 
     duration = float(librosa.get_duration(path=input_file))

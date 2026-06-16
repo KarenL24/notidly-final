@@ -289,12 +289,13 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); heig
 .upload-prompt span { font-size: 13px; }
 .upload-file-btn { font-family: var(--font); padding: 10px 24px; background: var(--orange); color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 4px; }
 
-.loading-overlay { display: none; position: absolute; inset: 0; background: rgba(255,255,255,0.9); border-radius: 12px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 10; }
+.loading-overlay { display: none; position: absolute; inset: 0; background: rgba(255,255,255,0.88); border-radius: 12px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 10; }
 .loading-overlay.visible { display: flex; }
 .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--orange); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-title { font-size: 15px; font-weight: 600; }
 .loading-sub { font-size: 13px; color: var(--muted); }
+#osmd-container { position: relative; transition: opacity 0.5s ease-out; }
 
 #osmd-container { width: 100%; }
 

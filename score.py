@@ -30,8 +30,9 @@ def midi_to_note_name(midi_pitch: int) -> str:
 
 
 def parse_key_signature(key_signature: str):
-    """Parse strings like 'C major' or 'A minor' into a music21 Key."""
-    name = key_signature.strip()
+    """Parse strings like 'C major', 'B♭ Major', or 'A minor' into a music21 Key."""
+    # Normalize Unicode symbols to music21's ASCII notation
+    name = key_signature.strip().replace('♭', 'b').replace('♯', '#')
     lower = name.lower()
     if " minor" in lower:
         tonic = name.split()[0]
@@ -42,45 +43,42 @@ def parse_key_signature(key_signature: str):
     return key.Key(name)
 
 
-def simplify_notation(score):
+def simplify_notation(part):
     """
-    Post-process a music21 Score to convert within-measure tied pairs into
-    their dotted-note equivalents.
-
-    Runs after makeNotation so ties at barlines are already correct;
-    this pass only collapses ties that remain inside a single measure.
+    Merge fragmented notes into conventional sustained notation.
+    Runs on the flat stream BEFORE makeNotation to ensure perfect barlines and ties.
     """
     from music21 import note as m21note
 
-    DOTTED_MAP = {
-        (1.0,  0.5):  1.5,
-        (2.0,  1.0):  3.0,
-        (0.5,  0.25): 0.75,
-        (4.0,  2.0):  6.0,
-        (0.25, 0.125):0.375,
-    }
-
-    for part in score.parts:
-        for measure in part.getElementsByClass('Measure'):
-            changed = True
-            while changed:
-                changed = False
-                els = list(measure.getElementsByClass(['Note', 'Rest']))
-                for i in range(len(els) - 1):
-                    n1, n2 = els[i], els[i + 1]
-                    if (isinstance(n1, m21note.Note) and
-                            isinstance(n2, m21note.Note) and
-                            n1.pitch.midi == n2.pitch.midi and
-                            n1.tie is not None and n1.tie.type == 'start' and
-                            n2.tie is not None and n2.tie.type == 'stop'):
-                        k = (float(n1.quarterLength), float(n2.quarterLength))
-                        if k in DOTTED_MAP:
-                            n1.quarterLength = DOTTED_MAP[k]
-                            n1.tie = None
-                            measure.remove(n2)
-                            changed = True
-                            break
-    return score
+    # We operate on the flat part before measures are built
+    els = list(part.notesAndRests)
+    i = 0
+    
+    while i < len(els):
+        n1 = els[i]
+        if not isinstance(n1, m21note.Note):
+            i += 1
+            continue
+            
+        j = i + 1
+        while j < len(els):
+            n2 = els[j]
+            if not isinstance(n2, m21note.Note):
+                break
+            if n2.pitch.midi != n1.pitch.midi:
+                break
+            # CRITICAL: Do not merge if the next note has a distinct lyric/syllable
+            if n2.lyrics:
+                break
+                
+            n1.quarterLength += float(n2.quarterLength)
+            part.remove(n2)
+            # Remove from our local list copy as well to keep indices aligned
+            els.pop(j)
+            
+        i += 1
+        
+    return part
 
 
 def build_score(
@@ -120,12 +118,16 @@ def build_score(
         n.quarterLength = dur
         if lyrics and lyric_idx < len(lyrics) and lyrics[lyric_idx]:
             n.addLyric(lyrics[lyric_idx])
-        lyric_idx += 1
+        
         part.append(n)
+        lyric_idx += 1
+
+    # Fix the fragmented notes BEFORE we split the stream into measures
+    simplify_notation(part)
 
     score.insert(0, part)
     score.makeNotation(inPlace=True)
-    simplify_notation(score)
+    score.stripTies(inPlace=True)
 
     return score
 
@@ -241,67 +243,20 @@ def rebuild_from_editor_notes(
 
 
 def render_pdf_lilypond(score, base_path: str) -> str:
-    """
-    Render PDF via LilyPond.
-
-    1. Use music21 to produce both the .ly source and an initial PDF.
-    2. Inject paper settings into the .ly to prevent the last system
-       from being clipped (ragged-last-bottom fix).
-    3. Re-run LilyPond on the patched .ly to produce the final PDF.
-    """
-    import subprocess
-
     if base_path.endswith(".pdf"):
         base_path = base_path[:-4]
 
-    ly_path = base_path + ".ly"
-
     score.write("lily.pdf", fp=base_path)
 
-    if not os.path.isfile(ly_path):
-        for candidate in (base_path + ".pdf", base_path + ".pdf.pdf"):
-            if os.path.isfile(candidate):
-                return candidate
-        raise FileNotFoundError(f"LilyPond produced no output at {base_path}")
-
-    with open(ly_path, "r", encoding="utf-8") as f:
-        ly = f.read()
-
-    paper = (
-        "\n\\paper {\n"
-        "  #(set-paper-size \"letter\")\n"
-        "  ragged-last-bottom = ##f\n"
-        "  ragged-bottom = ##f\n"
-        "  top-margin = 15\\mm\n"
-        "  bottom-margin = 15\\mm\n"
-        "  left-margin = 15\\mm\n"
-        "  right-margin = 15\\mm\n"
-        "}\n"
-    )
-
-    if "\\paper" in ly:
-        ly = re.sub(r'\\paper\s*\{[^}]*\}', paper.strip(), ly, count=1, flags=re.DOTALL)
-    elif "\\score" in ly:
-        ly = ly.replace("\\score", paper + "\\score", 1)
-    else:
-        ly = paper + ly
-
-    with open(ly_path, "w", encoding="utf-8") as f:
-        f.write(ly)
-
-    result = subprocess.run(
-        ["lilypond", "-o", base_path, ly_path],
-        capture_output=True,
-        text=True,
-        cwd=os.path.dirname(base_path) or ".",
-    )
-
     pdf_path = base_path + ".pdf"
-    if not os.path.isfile(pdf_path):
-        stderr = (result.stderr or "")[-600:]
-        raise RuntimeError(f"LilyPond re-run failed.\n{stderr}")
+    if os.path.isfile(pdf_path):
+        return pdf_path
 
-    return pdf_path
+    alt = base_path + ".pdf.pdf"
+    if os.path.isfile(alt):
+        return alt
+
+    raise FileNotFoundError(f"LilyPond did not create {pdf_path}")
 
 
 def export_score_pdf(score) -> tuple:
