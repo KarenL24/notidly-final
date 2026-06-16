@@ -116,9 +116,7 @@ async def health_check():
 
 @app.get("/")
 async def serve_frontend():
-    if FRONTEND_FILE.exists():
-        return FileResponse(FRONTEND_FILE)
-    return JSONResponse({"message": "Frontend not found. Place index.html next to server.py."})
+    return FileResponse(REHEARSAL_FILE)
 
 
 @app.get("/editor")
