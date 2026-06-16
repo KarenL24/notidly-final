@@ -172,6 +172,8 @@ function overrideTimeSig(xml, timeSig) {
 // ── Transcribe + merge ──────────────────────────────────────────────────────
 async function transcribeAndAdd(fileOrBlob, partName) {
   const timeSig = document.getElementById('partTimeSig')?.value || '';
+  const keyVal = document.getElementById('partKey')?.value || 'auto';
+  const clefVal = document.getElementById('partClef')?.value || 'Treble';
   closeAddPartPanel();
   setLoading(true, `Transcribing "${partName}"…`);
 
@@ -183,40 +185,68 @@ async function transcribeAndAdd(fileOrBlob, partName) {
   if (timeSig) form.append('time_signature', timeSig);
 
   try {
-    const res = await fetch(`${API}/transcribe`, { method: 'POST', body: form });
+    const res = await fetch(`${API}/transcribe-stream`, { method: 'POST', body: form });
     if (!res.ok) throw new Error(await res.text());
-    const result = await res.json();
 
-    let xml = result.musicxml;
-    if (timeSig) xml = overrideTimeSig(xml, timeSig);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
 
-    const keyVal = document.getElementById('partKey')?.value || 'auto';
-    if (keyVal !== 'auto') xml = overrideKey(xml, keyVal);
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
 
-    const clefVal = document.getElementById('partClef')?.value || 'Treble';
-    xml = overrideClef(xml, clefVal);
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const event = JSON.parse(line.slice(6));
 
-    parts.push({
-      name: partName,
-      xml,
-      bpm: result.bpm,
-      noteCount: result.note_count,
-      duration: result.duration,
-    });
+        if (event.stage) {
+          document.getElementById('loadingTitle').textContent = event.stage;
+          showToast(event.stage, 8000);
 
-    if (parts.length === 1) {
-      combinedXML = xml;
-      bpm = Math.round(result.bpm);
-      document.getElementById('bpmInput').value = bpm;
-      document.getElementById('titleInput').value = partName;
-    } else {
-      combinedXML = mergePart(combinedXML, xml, partName, parts.length);
+        } else if (event.type === 'preview') {
+          // Real notes from the audio — show faded while lyrics load
+          setLoading(false);
+          let xml = event.musicxml;
+          if (timeSig) xml = overrideTimeSig(xml, timeSig);
+          if (keyVal !== 'auto') xml = overrideKey(xml, keyVal);
+          xml = overrideClef(xml, clefVal);
+          bpm = Math.round(event.bpm);
+          document.getElementById('bpmInput').value = bpm;
+          await renderScore(xml, { preview: true });
+
+        } else if (event.type === 'complete') {
+          let xml = event.musicxml;
+          if (timeSig) xml = overrideTimeSig(xml, timeSig);
+          if (keyVal !== 'auto') xml = overrideKey(xml, keyVal);
+          xml = overrideClef(xml, clefVal);
+
+          parts.push({
+            name: partName, xml,
+            bpm: event.bpm, noteCount: event.note_count, duration: event.duration,
+          });
+
+          if (parts.length === 1) {
+            combinedXML = xml;
+            bpm = Math.round(event.bpm);
+            document.getElementById('bpmInput').value = bpm;
+            document.getElementById('titleInput').value = partName;
+          } else {
+            combinedXML = mergePart(combinedXML, xml, partName, parts.length);
+          }
+
+          await renderScore(combinedXML);
+          renderTracks();
+          document.getElementById('playBtn').disabled = false;
+
+        } else if (event.type === 'error') {
+          throw new Error(event.message);
+        }
+      }
     }
-
-    await renderScore(combinedXML);
-    renderTracks();
-    document.getElementById('playBtn').disabled = false;
-
   } catch (err) {
     alert(`Transcription failed: ${err.message}\n\nMake sure the backend is running at ${API}`);
   } finally {
@@ -311,7 +341,33 @@ function getKeyFromXML(xml) {
 }
 
 // ── OSMD ────────────────────────────────────────────────────────────────────
-async function renderScore(xml) {
+function animateReveal(container, duration) {
+  container.querySelectorAll('.score-reveal').forEach(e => e.remove());
+  const veil = document.createElement('div');
+  veil.className = 'score-reveal';
+  // z-index: 1000 ensures it sits above OSMD's SVG regardless of what OSMD sets
+  veil.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:1000;';
+  container.appendChild(veil);
+
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min((now - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    const pct = (ease * 100).toFixed(2);
+    // Left of pct%: transparent (notes fully visible)
+    // Right of pct%: 90% white so staff lines bleed through faintly
+    veil.style.background =
+      `linear-gradient(to right, transparent ${pct}%, rgba(255,255,255,0.9) ${pct}%)`;
+    if (t < 1) {
+      requestAnimationFrame(tick);
+    } else {
+      veil.remove();
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+async function renderScore(xml, { preview = false } = {}) {
   document.getElementById('uploadPrompt').style.display = 'none';
   document.getElementById('keyDisplay').textContent = getKeyFromXML(xml);
   updateTimeSigDisplay(getTimeSigFromXML(xml));
@@ -326,7 +382,131 @@ async function renderScore(xml) {
   }
   await osmd.load(xml);
   osmd.render();
+  const container = document.getElementById('osmd-container');
+  container.classList.remove('preview');
+  if (preview) {
+    animateReveal(container, 3500);
+  } else {
+    await loadEditableNotes();
+    setupNoteEditing();
+  }
   requestAnimationFrame(() => styleOSMDCursor());
+}
+
+// ── Note editing ─────────────────────────────────────────────────────────────
+let editableNotes = [];
+let selectedNoteIdx = null;
+let selectedNoteEl = null;
+
+async function loadEditableNotes() {
+  if (!combinedXML) return;
+  try {
+    const res = await fetch(`${API}/parse-score`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ musicxml: combinedXML }),
+    });
+    if (!res.ok) return;
+    const { score_notes } = await res.json();
+    editableNotes = score_notes;
+  } catch {}
+}
+
+function getNoteElements() {
+  const svg = document.querySelector('#osmd-container svg');
+  if (!svg) return [];
+  // VexFlow (used by OSMD) adds .vf-notehead to note head groups.
+  // Selecting parent .vf-stavenote that *contain* a notehead filters out rests.
+  const heads = Array.from(svg.querySelectorAll('.vf-notehead'));
+  return heads.map(h => h.closest('.vf-stavenote')).filter((el, i, arr) => el && arr.indexOf(el) === i);
+}
+
+function setupNoteEditing() {
+  if (!editableNotes.length) return;
+  const svg = document.querySelector('#osmd-container svg');
+  if (!svg) return;
+  svg.removeEventListener('click', handleScoreClick);
+  svg.addEventListener('click', handleScoreClick);
+  // Make notes look clickable
+  getNoteElements().forEach(el => { el.style.cursor = 'pointer'; });
+}
+
+function handleScoreClick(e) {
+  let el = e.target;
+  let noteGroup = null;
+  while (el && el.tagName !== 'svg') {
+    if (el.classList?.contains('vf-stavenote') && el.querySelector('.vf-notehead')) {
+      noteGroup = el;
+      break;
+    }
+    el = el.parentElement;
+  }
+  if (!noteGroup) { deselectNote(); return; }
+  const idx = getNoteElements().indexOf(noteGroup);
+  if (idx >= 0 && idx < editableNotes.length) selectNote(idx, noteGroup);
+}
+
+function selectNote(idx, el) {
+  deselectNote();
+  selectedNoteIdx = idx;
+  selectedNoteEl = el;
+  el.querySelectorAll('path, ellipse').forEach(p => {
+    p._origFill = p.getAttribute('fill');
+    p.setAttribute('fill', 'var(--orange, #e06c00)');
+  });
+  el.querySelectorAll('line').forEach(l => {
+    l._origStroke = l.getAttribute('stroke');
+    l.setAttribute('stroke', 'var(--orange, #e06c00)');
+  });
+}
+
+function deselectNote() {
+  if (selectedNoteEl) {
+    selectedNoteEl.querySelectorAll('path, ellipse').forEach(p => {
+      p.setAttribute('fill', p._origFill ?? 'black');
+    });
+    selectedNoteEl.querySelectorAll('line').forEach(l => {
+      l.setAttribute('stroke', l._origStroke ?? 'black');
+    });
+  }
+  selectedNoteIdx = null;
+  selectedNoteEl = null;
+}
+
+document.addEventListener('keydown', (e) => {
+  if (selectedNoteIdx === null) return;
+  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown' && e.key !== 'Escape') return;
+  e.preventDefault();
+  if (e.key === 'Escape') { deselectNote(); return; }
+  editableNotes[selectedNoteIdx].pitch += e.key === 'ArrowUp' ? 1 : -1;
+  clearTimeout(window._noteEditTimer);
+  window._noteEditTimer = setTimeout(applyNoteEdit, 350);
+});
+
+async function applyNoteEdit() {
+  const prevIdx = selectedNoteIdx;
+  setLoading(true, 'Updating score…');
+  try {
+    const res = await fetch(`${API}/rebuild-score`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        score_notes: editableNotes,
+        bpm,
+        time_signature: getTimeSigFromXML(combinedXML),
+        key_signature: getKeyFromXML(combinedXML),
+      }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const result = await res.json();
+    combinedXML = result.musicxml;
+    await renderScore(combinedXML);
+    // Re-select the same note after re-render
+    const els = getNoteElements();
+    if (prevIdx !== null && els[prevIdx]) selectNote(prevIdx, els[prevIdx]);
+  } catch (err) {
+    showToast(`Edit failed: ${err.message}`);
+  } finally {
+    setLoading(false);
+  }
 }
 
 // ── Tracks panel ─────────────────────────────────────────────────────────────
@@ -827,12 +1007,12 @@ function applyMarking(marking) {
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
-function showToast(msg) {
+function showToast(msg, duration = 2500) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(window._toastTimer);
-  window._toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  window._toastTimer = setTimeout(() => t.classList.remove('show'), duration);
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────

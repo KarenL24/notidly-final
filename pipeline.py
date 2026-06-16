@@ -117,6 +117,35 @@ def remove_fry(freq, confidence):
     return cleaned
 
 
+def fill_short_pitch_gaps(freq, max_gap_frames=15):
+    freq = freq.copy()
+
+    i = 0
+    while i < len(freq):
+        if freq[i] > 0:
+            i += 1
+            continue
+
+        start = i
+
+        while i < len(freq) and freq[i] == 0:
+            i += 1
+
+        end = i
+
+        gap_len = end - start
+
+        if (
+            gap_len <= max_gap_frames
+            and start > 0
+            and end < len(freq)
+            and freq[start - 1] > 0
+            and freq[end] > 0
+        ):
+            freq[start:end] = (freq[start - 1] + freq[end]) / 2
+
+    return freq
+
 # ── Note segmentation ─────────────────────────────────────────────────────────
 
 def segment_notes(times, freq):
@@ -338,25 +367,50 @@ def merge_same_pitch_notes(events):
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
-def run_pipeline(input_file: str, time_signature: str = None):
-    """Run transcription and return (score, metadata dict)."""
+def run_pipeline(input_file: str, time_signature: str = None, on_stage=None, on_preview=None):
+    """
+    Run transcription and return (score, metadata dict).
+
+    on_stage(message): called before each major step, for progress reporting.
+    on_preview(quantized, bpm, detected_key, time_sig): called right after
+        note segmentation/quantization, before the (slower) lyric detection
+        step, so callers can stream an early preview of the real notes.
+    """
+    def stage(message):
+        if on_stage:
+            on_stage(message)
+
+    stage("Loading audio…")
     audio = load_audio(input_file)
+
+    stage("Detecting tempo…")
     bpm = detect_tempo(audio)
     time_sig = time_signature if time_signature else detect_time_signature(audio, bpm)
 
+    stage("Extracting pitch… (this takes a while)")
     times, freq, conf = extract_pitch(audio)
+
+    stage("Segmenting notes…")
     freq = remove_fry(freq, conf)
     freq = smooth_pitch(freq)
+    freq = fill_short_pitch_gaps(freq)
     segments = segment_notes(times, freq)
+    print(segments[:20])
 
     detected_key = detect_key(segments)
     quantized = quantize_notes(segments, bpm)
+
+    if on_preview:
+        on_preview(quantized, bpm, detected_key, time_sig)
+
+    stage("Detecting lyrics…")
     words = detect_lyrics(input_file)
     lyrics = align_lyrics(words, segments)
 
-    if not words:
-        quantized = merge_same_pitch_notes(quantized)
+    #if not words:
+     #   quantized = merge_same_pitch_notes(quantized)
 
+    stage("Finalizing score…")
     score = build_score(quantized, bpm, detected_key, time_sig, lyrics=lyrics)
 
     duration = float(librosa.get_duration(path=input_file))

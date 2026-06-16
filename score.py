@@ -30,8 +30,9 @@ def midi_to_note_name(midi_pitch: int) -> str:
 
 
 def parse_key_signature(key_signature: str):
-    """Parse strings like 'C major' or 'A minor' into a music21 Key."""
-    name = key_signature.strip()
+    """Parse strings like 'C major', 'B♭ Major', or 'A minor' into a music21 Key."""
+    # Normalize Unicode symbols to music21's ASCII notation
+    name = key_signature.strip().replace('♭', 'b').replace('♯', '#')
     lower = name.lower()
     if " minor" in lower:
         tonic = name.split()[0]
@@ -42,60 +43,43 @@ def parse_key_signature(key_signature: str):
     return key.Key(name)
 
 
-def simplify_notation(score):
+def simplify_notation(part):
     """
     Merge fragmented notes into conventional sustained notation.
-
-    Fixes:
-    - broken or missing ties
-    - over-segmented repeated notes
-    - unstable measure ordering
+    Runs on the flat stream BEFORE makeNotation to ensure perfect barlines and ties.
     """
-
     from music21 import note as m21note
 
-    for part in score.parts:
-        for measure in part.getElementsByClass('Measure'):
+    # We operate on the flat part before measures are built
+    els = list(part.notesAndRests)
+    i = 0
+    
+    while i < len(els):
+        n1 = els[i]
+        if not isinstance(n1, m21note.Note):
+            i += 1
+            continue
+            
+        j = i + 1
+        while j < len(els):
+            n2 = els[j]
+            if not isinstance(n2, m21note.Note):
+                break
+            if n2.pitch.midi != n1.pitch.midi:
+                break
+            # CRITICAL: Do not merge if the next note has a distinct lyric/syllable
+            if n2.lyrics:
+                break
+                
+            n1.quarterLength += float(n2.quarterLength)
+            part.remove(n2)
+            # Remove from our local list copy as well to keep indices aligned
+            els.pop(j)
+            
+        i += 1
+        
+    return part
 
-            els = list(measure.notesAndRests)
-            els.sort(key=lambda x: x.offset)
-
-            i = 0
-
-            while i < len(els):
-                n1 = els[i]
-
-                if not isinstance(n1, m21note.Note):
-                    i += 1
-                    continue
-
-                total_len = float(n1.quarterLength)
-                j = i + 1
-
-                while j < len(els):
-                    n2 = els[j]
-
-                    if isinstance(n2, m21note.Rest):
-                        break
-
-                    if not isinstance(n2, m21note.Note):
-                        break
-
-                    if n2.pitch.midi != n1.pitch.midi:
-                        break
-
-                    if n2.tie and n2.tie.type == 'start':
-                        break
-
-                    total_len += float(n2.quarterLength)
-                    measure.remove(n2)
-                    els.pop(j)
-
-                n1.quarterLength = total_len
-                n1.tie = None
-                i += 1
-
-    return score
 
 def build_score(
     quantized_notes,
@@ -134,12 +118,16 @@ def build_score(
         n.quarterLength = dur
         if lyrics and lyric_idx < len(lyrics) and lyrics[lyric_idx]:
             n.addLyric(lyrics[lyric_idx])
-        lyric_idx += 1
+        
         part.append(n)
+        lyric_idx += 1
+
+    # Fix the fragmented notes BEFORE we split the stream into measures
+    simplify_notation(part)
 
     score.insert(0, part)
     score.makeNotation(inPlace=True)
-    simplify_notation(score)
+    score.stripTies(inPlace=True)
 
     return score
 
